@@ -1,1 +1,4 @@
-python-3.11.0
+# NOTE: Render no longer reads this file (deprecated) — it's kept only for
+# tools/platforms that still check it. The file Render actually reads is
+# .python-version in this same directory. Keep both in sync.
+python-3.11.9
