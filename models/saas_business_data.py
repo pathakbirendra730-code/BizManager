@@ -51,6 +51,86 @@ def init_saas_business_tables():
     conn.close()
     print("[SaaS Business Data] Tables initialised.")
 
+    _seed_hsn_master()
+
+
+def _seed_hsn_master():
+    """
+    Seed the standard HSN/GST reference codes — ported from the old
+    models/database.py legacy schema (same 60+ codes, same values).
+    Safe to call every startup: ON CONFLICT / OR IGNORE means existing
+    rows are never touched.
+    """
+    rows = [
+        ("84713010","Laptop computers",18,"Electronics"),
+        ("84715000","Processing units for computers",18,"Electronics"),
+        ("85171290","Smartphones",18,"Electronics"),
+        ("85183000","Headphones and earphones",18,"Electronics"),
+        ("85044090","Power banks and chargers",18,"Electronics"),
+        ("84716041","Computer keyboards",18,"Electronics"),
+        ("84716060","Computer mouse",18,"Electronics"),
+        ("85444210","USB and data cables",18,"Electronics"),
+        ("85285100","Computer monitors",18,"Electronics"),
+        ("85076000","Lithium-ion batteries",18,"Electronics"),
+        ("84733099","Computer parts and accessories",18,"Electronics"),
+        ("85044010","UPS and inverters",12,"Electronics"),
+        ("85094000","Electric mixers and grinders",18,"Appliances"),
+        ("85163200","Electric hair dryers",18,"Appliances"),
+        ("85258090","CCTV cameras",18,"Electronics"),
+        ("10063000","Basmati rice",5,"Grains"),
+        ("10061000","Paddy rice",0,"Grains"),
+        ("07134000","Toor dal pigeon peas",5,"Pulses"),
+        ("07132000","Chickpeas chana",5,"Pulses"),
+        ("10011900","Wheat",0,"Grains"),
+        ("11010000","Wheat flour atta",5,"Grains"),
+        ("17011200","Raw cane sugar",5,"Sugar"),
+        ("17019100","Refined sugar",5,"Sugar"),
+        ("15121100","Sunflower oil",5,"Edible Oils"),
+        ("15141100","Mustard oil",5,"Edible Oils"),
+        ("15131100","Coconut oil",5,"Edible Oils"),
+        ("04011000","Fresh milk",0,"Dairy"),
+        ("04021000","Skimmed milk powder",5,"Dairy"),
+        ("04051000","Butter",12,"Dairy"),
+        ("04061000","Fresh cheese paneer",5,"Dairy"),
+        ("09024090","Tea leaves",5,"Beverages"),
+        ("09011110","Roasted coffee",12,"Beverages"),
+        ("22021090","Packaged water soda",18,"Beverages"),
+        ("09103000","Turmeric powder",5,"Spices"),
+        ("09093110","Cumin seeds",5,"Spices"),
+        ("09042110","Black pepper whole",5,"Spices"),
+        ("09042210","Cardamom",5,"Spices"),
+        ("19053100","Biscuits and cookies",18,"Food"),
+        ("19059090","Bread and bakery",5,"Bakery"),
+        ("21069099","Food supplements protein powder",18,"Food"),
+        ("61091000","Cotton T-shirts",5,"Clothing"),
+        ("62034200","Cotton jeans and trousers",12,"Clothing"),
+        ("61051000","Mens shirts cotton",5,"Clothing"),
+        ("64029900","Rubber and plastic footwear",18,"Footwear"),
+        ("64039990","Leather footwear",18,"Footwear"),
+        ("48202000","Notebooks and exercise books",12,"Stationery"),
+        ("96081000","Ball-point pens",18,"Stationery"),
+        ("96091000","Pencils",0,"Stationery"),
+        ("30049099","Medicines and tablets",12,"Pharma"),
+        ("30051090","Surgical dressings",12,"Pharma"),
+        ("39171000","PVC pipes",18,"Plumbing"),
+        ("73083000","Steel doors and frames",18,"Hardware"),
+        ("998311","IT software services SAC",18,"Services"),
+        ("996111","Hotel accommodation SAC",18,"Services"),
+        ("996332","Restaurant services SAC",5,"Services"),
+    ]
+    p = P()
+    if _is_postgres():
+        sql = (f"INSERT INTO hsn_master (hsn_code,description,default_gst_rate,category) "
+               f"VALUES ({p},{p},{p},{p}) ON CONFLICT (hsn_code) DO NOTHING")
+    else:
+        sql = (f"INSERT OR IGNORE INTO hsn_master (hsn_code,description,default_gst_rate,category) "
+               f"VALUES ({p},{p},{p},{p})")
+    for row in rows:
+        try:
+            saas_execute(sql, row)
+        except Exception as e:
+            print(f"[SaaS Business Data] HSN seed row skipped ({row[0]}): {e}")
+
 
 # ═══════════════════════════════ SQLITE SCHEMA ════════════════════════════════
 
@@ -322,6 +402,18 @@ def _init_sqlite(c):
     for idx in indexes:
         c.execute(idx)
 
+    # ── hsn_master — shared GST reference table (global, not tenant-scoped) ────
+    # This is the one table from the old models/database.py legacy schema that's
+    # still genuinely read by live features (Products, GST). Ported here so it
+    # exists on Postgres too — everything else in that legacy schema is orphaned.
+    c.execute("""CREATE TABLE IF NOT EXISTS hsn_master (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        hsn_code         TEXT NOT NULL UNIQUE,
+        description      TEXT NOT NULL,
+        default_gst_rate REAL NOT NULL DEFAULT 18,
+        category         TEXT DEFAULT ''
+    )""")
+
 
 # ═══════════════════════════════ POSTGRESQL SCHEMA ════════════════════════════
 
@@ -579,6 +671,16 @@ def _init_postgres(c):
     for idx in indexes:
         c.execute(idx)
 
+    # ── hsn_master — shared GST reference table (global, not tenant-scoped) ────
+    # Postgres equivalent of the SQLite version above — see that one's comment.
+    c.execute("""CREATE TABLE IF NOT EXISTS hsn_master (
+        id               SERIAL PRIMARY KEY,
+        hsn_code         VARCHAR(20)  NOT NULL UNIQUE,
+        description      TEXT         NOT NULL,
+        default_gst_rate NUMERIC(5,2) NOT NULL DEFAULT 18,
+        category         VARCHAR(100) DEFAULT ''
+    )""")
+
 
 # ═══════════════════════════════ SHARED QUERY HELPERS ═════════════════════════
 # Thin re-exports so modules can `from models.saas_business_data import ...`
@@ -590,25 +692,24 @@ def P():
 
 def get_hsn_master(search: str = "") -> list:
     """
-    HSN codes remain a GLOBAL reference table (not tenant-scoped) —
-    reused from the legacy SQLite database, read-only.
+    HSN codes are a GLOBAL reference table (not tenant-scoped) — now
+    created and seeded by this same hybrid module (see
+    init_saas_business_tables / _seed_hsn_master above), so this works
+    against SQLite (dev) or PostgreSQL (prod) exactly like every other
+    query in this file.
     """
-    from models.database import get_db
-    conn = get_db()
+    p = P()
     try:
         if search:
-            rows = conn.execute(
-                "SELECT * FROM hsn_master WHERE hsn_code LIKE ? OR description LIKE ? "
-                "ORDER BY hsn_code LIMIT 50",
-                (f"%{search}%", f"%{search}%")
-            ).fetchall()
+            like = f"%{search}%"
+            rows = saas_fetchall(
+                f"SELECT * FROM hsn_master WHERE hsn_code LIKE {p} OR description LIKE {p} "
+                f"ORDER BY hsn_code LIMIT 50",
+                (like, like)
+            )
         else:
-            rows = conn.execute(
-                "SELECT * FROM hsn_master ORDER BY hsn_code LIMIT 100"
-            ).fetchall()
-        return [dict(r) for r in rows]
+            rows = saas_fetchall("SELECT * FROM hsn_master ORDER BY hsn_code LIMIT 100")
+        return rows
     except Exception as e:
         print(f"[saas_business_data] HSN lookup failed: {e}")
         return []
-    finally:
-        conn.close()

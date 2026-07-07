@@ -27,7 +27,6 @@ print(f"[startup] BOOTSTRAP_ADMIN_TOKEN is set: {bool(_token)} "
 
 from flask import Flask, redirect, url_for, session
 from config import ActiveConfig
-from models.database import init_db
 
 # ── Blueprint imports ──────────────────────────────────────────────────────────
 from modules.saas_auth      import saas_auth_bp
@@ -99,10 +98,8 @@ def create_app():
         from flask import jsonify
         from datetime import datetime
         try:
-            from models.database import get_db
-            conn = get_db()
-            conn.execute("SELECT 1").fetchone()
-            conn.close()
+            from models.saas_auth import saas_fetchone
+            saas_fetchone("SELECT 1")
             db_ok = True
         except Exception:
             db_ok = False
@@ -165,7 +162,21 @@ def create_app():
 
     # ── DB init ────────────────────────────────────────────────────────────────
     with app.app_context():
-        init_db()
+        # models/database.py's init_db() (legacy single-tenant schema +
+        # template-shop seeding) is intentionally NOT called here. A full
+        # audit (see the SQLite -> PostgreSQL migration) confirmed nothing
+        # reachable in the current SaaS-native app reads any table it
+        # creates — the one exception, hsn_master, was migrated onto the
+        # hybrid saas_* layer (models/saas_business_data.py) and no longer
+        # needs it. Calling it unconditionally was writing to a local
+        # SQLite file on every single startup regardless of whether
+        # PostgreSQL was configured for production — under Render's
+        # multiple gunicorn workers, that's the likely source of the
+        # "database is locked" errors this migration set out to fix, for
+        # zero functional benefit since nothing read the result anyway.
+        # The files still exist (models/database.py, utils/template_products.py)
+        # in case this is ever revived for the SaaS-native system deliberately.
+
         # SaaS Auth tables (SQLite dev / PostgreSQL prod)
         from models.saas_auth import init_saas_db
         init_saas_db()

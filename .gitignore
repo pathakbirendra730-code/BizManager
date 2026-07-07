@@ -6,7 +6,6 @@ database.db
 *.db
 *.sqlite
 *.sqlite3
+.DS_Store
 venv/
 .venv/
-database.db-shm
-database.db-wal

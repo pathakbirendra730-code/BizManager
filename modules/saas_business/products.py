@@ -381,13 +381,10 @@ def api_hsn():
 @saas_products_bp.route("/api/hsn/<string:code>")
 @saas_business_required
 def api_hsn_code(code):
-    from models.database import get_db
-    conn = get_db()
-    try:
-        row = conn.execute("SELECT * FROM hsn_master WHERE hsn_code=?", (code,)).fetchone()
-        return jsonify(dict(row) if row else {})
-    finally:
-        conn.close()
+    from models.saas_auth import saas_fetchone, _is_postgres
+    p = "%s" if _is_postgres() else "?"
+    row = saas_fetchone(f"SELECT * FROM hsn_master WHERE hsn_code={p}", (code,))
+    return jsonify(row if row else {})
 
 
 # ════════════════════════════════ HELPERS ═════════════════════════════════════
