@@ -73,7 +73,7 @@ def main():
     saas_execute(
         f"""INSERT INTO app_admins
             (user_id, password_hash, full_name, email, mobile, is_super, is_active)
-            VALUES ({p},{p},{p},{p},{p},1,1)""",
+            VALUES ({p},{p},{p},{p},{p},TRUE,TRUE)""",
         (user_id, generate_password_hash(password), full_name, email, mobile)
     )
 
