@@ -39,7 +39,7 @@
           {% endif %}
         </td>
         <td style="color:#9ca3af; font-size:12px;">
-          {{ a.last_login[:16] | replace('T',' ') if a.last_login else 'Never' }}
+          {{ (a.last_login | dtfmt(16) | replace('T',' ')) if a.last_login else 'Never' }}
         </td>
         <td>
           {% if a.id != admin_id %}

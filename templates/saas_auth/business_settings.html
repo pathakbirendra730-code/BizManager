@@ -166,7 +166,7 @@
     <p style="margin:0; font-size:13px; color:#92400e;">
       You're on the <strong>{{ biz.plan | title }}</strong> plan.
       {% if biz.trial_ends_at %}
-        Trial ends {{ biz.trial_ends_at[:10] }}.
+        Trial ends {{ biz.trial_ends_at | dtfmt(10) }}.
       {% endif %}
       Plan upgrades are managed separately — contact support to change your plan.
     </p>

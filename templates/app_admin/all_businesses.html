@@ -28,7 +28,7 @@
             <span class="pill pill-inactive">Inactive</span>
           {% endif %}
         </td>
-        <td style="color:#9ca3af; font-size:12px;">{{ b.created_at[:10] if b.created_at else '—' }}</td>
+        <td style="color:#9ca3af; font-size:12px;">{{ (b.created_at | dtfmt(10)) if b.created_at else '—' }}</td>
         <td>
           <form method="POST" action="{{ url_for('app_admin.toggle_business', biz_id=b.id) }}"
                 onsubmit="return confirm('{{ 'Deactivate' if b.is_active else 'Activate' }} {{ b.name }}?')">

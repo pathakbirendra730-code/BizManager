@@ -42,7 +42,7 @@
             <span style="color:#6b7280; font-size:12px;">No business</span>
           {% endfor %}
         </td>
-        <td style="color:#9ca3af; font-size:12px;">{{ u.created_at[:10] if u.created_at else '—' }}</td>
+        <td style="color:#9ca3af; font-size:12px;">{{ (u.created_at | dtfmt(10)) if u.created_at else '—' }}</td>
       </tr>
       {% else %}
       <tr><td colspan="6" class="empty-state">No SaaS users found</td></tr>

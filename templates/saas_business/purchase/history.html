@@ -60,7 +60,7 @@
         <td>{{ p.payment_method }}</td>
         <td><span class="badge badge-{{ 'success' if p.status=='received' else 'warning' if p.status=='partial' else 'danger' }}">
           {{ p.status }}</span></td>
-        <td class="text-muted small">{{ p.created_at[:10] }}</td>
+        <td class="text-muted small">{{ p.created_at | dtfmt(10) }}</td>
         <td class="actions-col">
           <a href="{{ url_for('saas_purchase.view', pid=p.id) }}" class="btn btn-sm btn-secondary" target="_blank">👁 View</a>
           {% if p.status != 'cancelled' and saas_role in ('owner', 'manager') %}

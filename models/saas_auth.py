@@ -90,6 +90,21 @@ def parse_dt(value):
     return datetime.fromisoformat(value)
 
 
+def fmt_dt(value, chars=16):
+    """
+    Truncate a timestamp column value to a display string, regardless of
+    backend — companion to parse_dt() for Python code (as opposed to
+    Jinja templates, which should use the 'dtfmt' template filter instead).
+    sqlite3 returns a string already; psycopg2 returns a datetime object
+    that must be converted before it can be sliced.
+    """
+    if not value:
+        return ""
+    if isinstance(value, datetime):
+        value = value.isoformat(sep="T", timespec="seconds")
+    return str(value)[:chars]
+
+
 # ═══════════════════════════ SCHEMA CREATION ══════════════════════════════════
 
 def init_saas_db():

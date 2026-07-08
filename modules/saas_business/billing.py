@@ -19,7 +19,7 @@ Permissions:
 
 from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
-from models.saas_auth import saas_fetchone, saas_fetchall, saas_execute, _is_postgres
+from models.saas_auth import saas_fetchone, saas_fetchall, saas_execute, _is_postgres, fmt_dt
 from utils.saas_helpers import saas_business_required, validate_csrf, audit_log
 from utils.saas_middleware import permission_required, get_tenant_id, assert_tenant_access
 from utils.tax_helpers import calculate_gst, determine_supply_type
@@ -485,7 +485,7 @@ def receivables():
         (biz_id,)
     )
     for r in rows:
-        r["date"] = r["created_at"][:10] if r.get("created_at") else ""
+        r["date"] = fmt_dt(r.get("created_at"), 10)
 
     total_due = saas_fetchone(
         f"""SELECT COALESCE(SUM(due_amount),0) as t FROM saas_invoices

@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 """
 app.py  — BizManager Multi-Shop ERP  |  Flask Application Factory
 ==================================================================
@@ -42,6 +43,25 @@ def create_app():
     app.config["SESSION_PERMANENT"]     = ActiveConfig.SESSION_PERMANENT
     app.config["SESSION_COOKIE_NAME"]   = ActiveConfig.SESSION_COOKIE_NAME
     app.config["MAX_CONTENT_LENGTH"]    = ActiveConfig.MAX_CONTENT_LENGTH
+
+    @app.template_filter("dtfmt")
+    def dtfmt(value, chars=16):
+        """Safely truncate a timestamp for display, whether the DB driver
+        returned a plain string (SQLite TEXT columns) or a datetime object
+        (PostgreSQL TIMESTAMP columns, via psycopg2). Templates across this
+        app used to slice timestamp values directly (e.g. created_at[:10]),
+        which only works for strings — on PostgreSQL that raises
+        'datetime.datetime object is not subscriptable' and produces a 500
+        the first time the column actually holds a value. This filter
+        normalizes to the same ISO-style string either backend would give,
+        so existing template output (and any '| replace(\"T\",\" \")' chains)
+        is unchanged.
+        """
+        if not value:
+            return ""
+        if isinstance(value, datetime):
+            value = value.isoformat(sep="T", timespec="seconds")
+        return str(value)[:chars]
 
     @app.template_filter("inr")
     def inr(value):

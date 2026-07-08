@@ -18,7 +18,7 @@
         <tr><td>📍</td><td>{{ customer.address or '—' }}</td></tr>
         <tr><td>🏛</td><td>GSTIN: {{ customer.gstin or '—' }}</td></tr>
         <tr><td>🗺</td><td>State: {{ customer.state_code or '—' }}</td></tr>
-        <tr><td>📅</td><td>Since {{ customer.created_at[:10] if customer.created_at else '—' }}</td></tr>
+        <tr><td>📅</td><td>Since {{ (customer.created_at | dtfmt(10)) if customer.created_at else '—' }}</td></tr>
       </table>
       <div class="btn-row mt-2">
         {% if saas_role in ('owner', 'manager') %}
@@ -60,7 +60,7 @@
           <td>₹{{ "%.2f"|format(inv.total_tax) }}</td>
           <td>{{ inv.payment_method }}</td>
           <td><span class="badge badge-{{ inv.status }}">{{ inv.status }}</span></td>
-          <td>{{ inv.created_at[:16] if inv.created_at else '—' }}</td>
+          <td>{{ (inv.created_at | dtfmt(16)) if inv.created_at else '—' }}</td>
           <td>
             <span class="btn btn-sm btn-secondary" style="opacity:0.5; cursor:not-allowed;"
                   title="Billing module coming soon">View</span>
