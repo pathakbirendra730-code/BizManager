@@ -331,12 +331,16 @@ def set_setting(key: str, value: str, updated_by=None) -> None:
 
     p = P()
     if _is_postgres():
+        # platform_settings has no "id" column (its primary key is "key"),
+        # so saas_execute() must not auto-append "RETURNING id" here — pass
+        # returning=None to opt out of that default behavior.
         saas_execute(
             f"""INSERT INTO platform_settings (key, value, updated_by, updated_at)
                 VALUES ({p},{p},{p}, NOW())
                 ON CONFLICT (key) DO UPDATE
                 SET value={p}, updated_by={p}, updated_at=NOW()""",
-            (key, value, updated_by, value, updated_by)
+            (key, value, updated_by, value, updated_by),
+            returning=None
         )
     else:
         saas_execute(
@@ -345,7 +349,8 @@ def set_setting(key: str, value: str, updated_by=None) -> None:
                 ON CONFLICT (key) DO UPDATE
                 SET value=excluded.value, updated_by=excluded.updated_by,
                     updated_at=datetime('now')""",
-            (key, value, updated_by)
+            (key, value, updated_by),
+            returning=None
         )
 
 
