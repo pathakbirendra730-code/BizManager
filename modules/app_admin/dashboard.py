@@ -13,9 +13,10 @@ view, which only shows members of the CURRENT business.
 """
 
 from flask import render_template, request, redirect, url_for, flash, session
+from datetime import datetime
 from modules.app_admin.routes import app_admin_bp, app_admin_required, super_admin_required
 from models.saas_auth import saas_fetchone, saas_fetchall, saas_execute, _is_postgres
-from utils.saas_helpers import audit_log, validate_csrf
+from utils.saas_helpers import audit_log, validate_csrf, validate_mobile
 
 P = lambda: "%s" if _is_postgres() else "?"
 
@@ -99,6 +100,149 @@ def all_users():
                            saas_users=saas_users,
                            search=search,
                            total_count=len(saas_users))
+
+
+@app_admin_bp.route("/users/<int:user_id>")
+@app_admin_required
+def view_user(user_id):
+    """Detail view of a single SaaS user — their profile plus every
+    business they belong to and in what role."""
+    p = P()
+    user = saas_fetchone(f"SELECT * FROM saas_users WHERE id={p}", (user_id,))
+    if not user:
+        flash("User not found.", "danger")
+        return redirect(url_for("app_admin.all_users"))
+
+    memberships = saas_fetchall(
+        f"""SELECT b.id as business_id, b.name as business_name, ur.role, ur.is_active
+            FROM saas_user_roles ur
+            JOIN saas_businesses b ON b.id = ur.business_id
+            WHERE ur.user_id={p}
+            ORDER BY b.name ASC""",
+        (user_id,)
+    )
+    return render_template("app_admin/view_user.html", user=user, memberships=memberships)
+
+
+@app_admin_bp.route("/users/<int:user_id>/edit", methods=["POST"])
+@super_admin_required
+def edit_user(user_id):
+    """Edit a SaaS user's name/email/mobile/active status. Sensitive —
+    restricted to super admins, same as admin management."""
+    if not validate_csrf(request.form.get("csrf_token")):
+        flash("Security error.", "danger")
+        return redirect(url_for("app_admin.view_user", user_id=user_id))
+
+    p = P()
+    user = saas_fetchone(f"SELECT * FROM saas_users WHERE id={p}", (user_id,))
+    if not user:
+        flash("User not found.", "danger")
+        return redirect(url_for("app_admin.all_users"))
+
+    full_name = request.form.get("full_name", "").strip()
+    email     = request.form.get("email", "").strip().lower()
+    mobile_in = request.form.get("mobile", "").strip()
+
+    if not full_name or len(full_name) < 2:
+        flash("Full name must be at least 2 characters.", "danger")
+        return redirect(url_for("app_admin.view_user", user_id=user_id))
+    if not email or "@" not in email:
+        flash("Please enter a valid email address.", "danger")
+        return redirect(url_for("app_admin.view_user", user_id=user_id))
+
+    ok, mobile_norm = validate_mobile(mobile_in)
+    if not ok:
+        flash(mobile_norm, "danger")
+        return redirect(url_for("app_admin.view_user", user_id=user_id))
+
+    dupe = saas_fetchone(
+        f"SELECT id FROM saas_users WHERE (email={p} OR mobile={p}) AND id != {p}",
+        (email, mobile_norm, user_id)
+    )
+    if dupe:
+        flash("Another account already uses that email or mobile number.", "danger")
+        return redirect(url_for("app_admin.view_user", user_id=user_id))
+
+    saas_execute(
+        f"""UPDATE saas_users
+            SET full_name={p}, email={p}, mobile={p}, updated_at={p}
+            WHERE id={p}""",
+        (full_name, email, mobile_norm, datetime.utcnow().isoformat(), user_id)
+    )
+    audit_log("app_admin_edited_user", detail=f"user_id={user_id}")
+    flash("User updated successfully.", "success")
+    return redirect(url_for("app_admin.view_user", user_id=user_id))
+
+
+@app_admin_bp.route("/users/<int:user_id>/toggle", methods=["POST"])
+@app_admin_required
+def toggle_user(user_id):
+    """Activate/deactivate a SaaS user (blocks their login without
+    deleting their data — the safer option for most cases)."""
+    if not validate_csrf(request.form.get("csrf_token")):
+        flash("Security error.", "danger")
+        return redirect(url_for("app_admin.view_user", user_id=user_id))
+
+    p = P()
+    user = saas_fetchone(f"SELECT * FROM saas_users WHERE id={p}", (user_id,))
+    if not user:
+        flash("User not found.", "danger")
+        return redirect(url_for("app_admin.all_users"))
+
+    new_status = False if user["is_active"] else True
+    saas_execute(
+        f"UPDATE saas_users SET is_active={p} WHERE id={p}",
+        (new_status, user_id)
+    )
+    audit_log("app_admin_toggled_user", detail=f"user_id={user_id} is_active={new_status}")
+    flash(f"{user['full_name']} {'activated' if new_status else 'deactivated'}.", "success")
+    return redirect(url_for("app_admin.view_user", user_id=user_id))
+
+
+@app_admin_bp.route("/users/<int:user_id>/delete", methods=["POST"])
+@super_admin_required
+def delete_user(user_id):
+    """Permanently delete a SaaS user account (e.g. demo/test accounts).
+    Blocked if the user is the SOLE owner of any business, since deleting
+    them would leave that business with nobody able to manage it — reassign
+    ownership or delete the business first in that case."""
+    if not validate_csrf(request.form.get("csrf_token")):
+        flash("Security error.", "danger")
+        return redirect(url_for("app_admin.all_users"))
+
+    p = P()
+    user = saas_fetchone(f"SELECT * FROM saas_users WHERE id={p}", (user_id,))
+    if not user:
+        flash("User not found.", "danger")
+        return redirect(url_for("app_admin.all_users"))
+
+    owned = saas_fetchall(
+        f"""SELECT b.id as business_id, b.name FROM saas_user_roles ur
+            JOIN saas_businesses b ON b.id = ur.business_id
+            WHERE ur.user_id={p} AND ur.role='owner' AND ur.is_active=TRUE""",
+        (user_id,)
+    )
+    blocking = []
+    for biz in owned:
+        other_owners = saas_fetchone(
+            f"""SELECT COUNT(*) as c FROM saas_user_roles
+                WHERE business_id={p} AND role='owner' AND is_active=TRUE AND user_id != {p}""",
+            (biz["business_id"], user_id)
+        )["c"]
+        if other_owners == 0:
+            blocking.append(biz["name"])
+
+    if blocking:
+        flash("Cannot delete — sole owner of: " + ", ".join(blocking) +
+              ". Reassign ownership or delete the business first.", "danger")
+        return redirect(url_for("app_admin.view_user", user_id=user_id))
+
+    saas_execute(f"DELETE FROM saas_user_roles WHERE user_id={p}", (user_id,))
+    saas_execute(f"DELETE FROM saas_users WHERE id={p}", (user_id,))
+    audit_log("app_admin_deleted_user",
+              detail=f"user_id={user_id} mobile={user['mobile']} email={user['email']}")
+    flash(f"{user['full_name']} deleted.", "success")
+    return redirect(url_for("app_admin.all_users"))
 
 
 # ════════════════════════════ ALL BUSINESSES ═════════════════════════════════

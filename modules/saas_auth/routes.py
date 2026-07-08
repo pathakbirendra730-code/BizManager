@@ -825,12 +825,325 @@ def reset_pin(token):
     return render_template("saas_auth/reset_pin.html", token=token)
 
 
+# ════════════════════════ LOGIN WITH OTP (choose channel) ════════════════════
+# Alternative to PIN login: user enters their mobile number, picks whether
+# the OTP should go to their mobile (SMS) or their registered email, then
+# verifies it to sign in — same destination logic as the PIN login success
+# path (single business -> straight in, multiple -> pick one, none -> setup).
+
+@saas_auth_bp.route("/login-otp", methods=["GET", "POST"])
+def login_otp():
+    if session.get(SAAS_SESSION_KEY):
+        return redirect(url_for("saas_dashboard.index"))
+
+    if request.method == "POST":
+        if not validate_csrf(request.form.get("csrf_token")):
+            flash("Security error. Please try again.", "danger")
+            return render_template("saas_auth/login_otp.html")
+
+        mobile  = request.form.get("mobile", "").strip()
+        channel = request.form.get("channel", "mobile")
+        if channel not in ("mobile", "email"):
+            channel = "mobile"
+
+        ok, mobile_norm = validate_mobile(mobile)
+        if not ok:
+            flash(mobile_norm, "danger")
+            return render_template("saas_auth/login_otp.html", mobile=mobile)
+
+        rl_key = f"login_otp:{mobile_norm}:{_client_ip()}"
+        if not check_rate_limit(rl_key, max_requests=10, window_seconds=600):
+            audit_log("login_otp_rate_limited", status="failure",
+                      detail=f"mobile={mobile_norm}")
+            flash("Too many attempts. Please wait 10 minutes.", "danger")
+            return render_template("saas_auth/login_otp.html", mobile=mobile)
+
+        p = P()
+        user = saas_fetchone(
+            f"SELECT * FROM saas_users WHERE mobile={p} AND is_active=TRUE",
+            (mobile_norm,)
+        )
+        if not user:
+            audit_log("login_otp_user_not_found", status="failure",
+                      detail=f"mobile={mobile_norm}")
+            flash("Mobile number not registered. Please sign up.", "warning")
+            return render_template("saas_auth/login_otp.html", mobile=mobile)
+
+        if not user.get("is_verified"):
+            flash("Account not verified. Please complete signup first.", "warning")
+            return render_template("saas_auth/login_otp.html", mobile=mobile)
+
+        if channel == "email" and not user.get("email"):
+            flash("No email on file for this account — choose SMS instead.", "danger")
+            return render_template("saas_auth/login_otp.html", mobile=mobile)
+
+        otp = generate_otp()
+        session[SAAS_PENDING_USER]   = user["id"]
+        session[SAAS_PENDING_MOBILE] = mobile_norm
+        session[SAAS_PENDING_EMAIL]  = user["email"]
+        session["login_otp_channel"] = channel
+
+        if channel == "email":
+            store_otp(user["email"], otp, "login_otp_email")
+            send_email_otp(user["email"], otp, "login_otp_email")
+            flash(f"OTP sent to {user['email']}", "info")
+        else:
+            store_otp(mobile_norm, otp, "login_otp_mobile")
+            send_sms_otp(mobile_norm, otp, "login_otp_mobile")
+            flash(f"OTP sent to {mobile_norm[-4:].rjust(10, '*')}", "info")
+
+        audit_log("login_otp_requested", user_id=user["id"], detail=f"channel={channel}")
+        return redirect(url_for("saas_auth.login_otp_verify"))
+
+    return render_template("saas_auth/login_otp.html")
+
+
+@saas_auth_bp.route("/login-otp/verify", methods=["GET", "POST"])
+def login_otp_verify():
+    user_id = session.get(SAAS_PENDING_USER)
+    channel = session.get("login_otp_channel", "mobile")
+    if not user_id:
+        flash("Session expired. Please try again.", "warning")
+        return redirect(url_for("saas_auth.login_otp"))
+
+    identifier = (session.get(SAAS_PENDING_EMAIL) if channel == "email"
+                  else session.get(SAAS_PENDING_MOBILE))
+    purpose = f"login_otp_{channel}"
+
+    if request.method == "POST":
+        if not validate_csrf(request.form.get("csrf_token")):
+            flash("Security error. Please try again.", "danger")
+            return render_template("saas_auth/login_otp_verify.html",
+                                   channel=channel, identifier=identifier)
+
+        otp = "".join(request.form.get("otp", "").split())
+
+        if not _rate_check(f"otp_verify_login:{user_id}", limit=10, window=600):
+            return render_template("saas_auth/login_otp_verify.html",
+                                   channel=channel, identifier=identifier)
+
+        success, message = verify_and_consume_otp(identifier, otp, purpose)
+        if not success:
+            audit_log("login_otp_failed", user_id=user_id, status="failure",
+                      detail=message)
+            flash(message, "danger")
+            return render_template("saas_auth/login_otp_verify.html",
+                                   channel=channel, identifier=identifier)
+
+        p = P()
+        user = saas_fetchone(f"SELECT * FROM saas_users WHERE id={p}", (user_id,))
+        if not user:
+            flash("Account not found.", "danger")
+            return redirect(url_for("saas_auth.login_otp"))
+
+        businesses = get_user_businesses(user["id"])
+
+        if not businesses:
+            session[SAAS_PENDING_USER]  = user["id"]
+            session[SAAS_PENDING_EMAIL] = user["email"]
+            saas_execute(
+                f"UPDATE saas_users SET last_login={p} WHERE id={p}",
+                (datetime.utcnow().isoformat(), user["id"])
+            )
+            flash("Please create your business profile to continue.", "info")
+            return redirect(url_for("saas_auth.business_setup"))
+
+        if len(businesses) == 1:
+            biz = businesses[0]
+            set_saas_session(user, biz, role=biz["role"])
+        else:
+            session[SAAS_PENDING_USER] = user["id"]
+            return redirect(url_for("saas_auth.select_business"))
+
+        saas_execute(
+            f"UPDATE saas_users SET last_login={p} WHERE id={p}",
+            (datetime.utcnow().isoformat(), user["id"])
+        )
+        audit_log("login_otp_success", user_id=user["id"],
+                  business_id=session.get(SAAS_BIZ_KEY))
+        flash(f"Welcome back, {user['full_name']}!", "success")
+        return redirect(url_for("saas_dashboard.index"))
+
+    return render_template("saas_auth/login_otp_verify.html",
+                           channel=channel, identifier=identifier)
+
+
+# ════════════════════ CHANGE MOBILE / EMAIL (with OTP verification) ═════════
+# Both require the OTP to be verified at the NEW mobile/email before the
+# account record is updated, so nobody can silently take over an account
+# by editing contact details to one they don't actually control.
+
+@saas_auth_bp.route("/profile/change-email", methods=["POST"])
+@saas_login_required
+def request_change_email():
+    user = get_current_saas_user()
+    if not validate_csrf(request.form.get("csrf_token")):
+        flash("Security error. Please try again.", "danger")
+        return redirect(url_for("saas_auth.profile"))
+
+    new_email = request.form.get("new_email", "").strip().lower()
+    if not new_email or "@" not in new_email:
+        flash("Please enter a valid email address.", "danger")
+        return redirect(url_for("saas_auth.profile"))
+
+    if new_email == (user.get("email") or "").lower():
+        flash("That's already your current email address.", "warning")
+        return redirect(url_for("saas_auth.profile"))
+
+    p = P()
+    dupe = saas_fetchone(
+        f"SELECT id FROM saas_users WHERE email={p} AND id != {p}",
+        (new_email, user["id"])
+    )
+    if dupe:
+        flash("Another account already uses that email address.", "danger")
+        return redirect(url_for("saas_auth.profile"))
+
+    if not check_rate_limit(f"change_email:{user['id']}", max_requests=5, window_seconds=600):
+        flash("Too many requests. Please wait before trying again.", "danger")
+        return redirect(url_for("saas_auth.profile"))
+
+    otp = generate_otp()
+    store_otp(new_email, otp, "change_email")
+    send_email_otp(new_email, otp, "change_email")
+    session["pending_new_email"] = new_email
+    audit_log("email_change_requested", user_id=user["id"],
+              detail=f"new_email={new_email}")
+    flash(f"OTP sent to {new_email}. Enter it below to confirm.", "info")
+    return redirect(url_for("saas_auth.confirm_change_email"))
+
+
+@saas_auth_bp.route("/profile/change-email/confirm", methods=["GET", "POST"])
+@saas_login_required
+def confirm_change_email():
+    user      = get_current_saas_user()
+    new_email = session.get("pending_new_email")
+    if not new_email:
+        flash("No pending email change. Please start again.", "warning")
+        return redirect(url_for("saas_auth.profile"))
+
+    if request.method == "POST":
+        if not validate_csrf(request.form.get("csrf_token")):
+            flash("Security error. Please try again.", "danger")
+            return redirect(url_for("saas_auth.confirm_change_email"))
+
+        otp = "".join(request.form.get("otp", "").split())
+
+        if not _rate_check(f"otp_verify_chgemail:{user['id']}", limit=10, window=600):
+            return render_template("saas_auth/confirm_change.html",
+                                   field="email", value=new_email)
+
+        success, message = verify_and_consume_otp(new_email, otp, "change_email")
+        if not success:
+            audit_log("email_change_failed", user_id=user["id"], status="failure",
+                      detail=message)
+            flash(message, "danger")
+            return render_template("saas_auth/confirm_change.html",
+                                   field="email", value=new_email)
+
+        p = P()
+        saas_execute(
+            f"UPDATE saas_users SET email={p}, updated_at={p} WHERE id={p}",
+            (new_email, datetime.utcnow().isoformat(), user["id"])
+        )
+        session.pop("pending_new_email", None)
+        audit_log("email_changed", user_id=user["id"], detail=f"new_email={new_email}")
+        flash("Email updated successfully.", "success")
+        return redirect(url_for("saas_auth.profile"))
+
+    return render_template("saas_auth/confirm_change.html", field="email", value=new_email)
+
+
+@saas_auth_bp.route("/profile/change-mobile", methods=["POST"])
+@saas_login_required
+def request_change_mobile():
+    user = get_current_saas_user()
+    if not validate_csrf(request.form.get("csrf_token")):
+        flash("Security error. Please try again.", "danger")
+        return redirect(url_for("saas_auth.profile"))
+
+    ok, mobile_norm = validate_mobile(request.form.get("new_mobile", ""))
+    if not ok:
+        flash(mobile_norm, "danger")
+        return redirect(url_for("saas_auth.profile"))
+
+    if mobile_norm == user.get("mobile"):
+        flash("That's already your current mobile number.", "warning")
+        return redirect(url_for("saas_auth.profile"))
+
+    p = P()
+    dupe = saas_fetchone(
+        f"SELECT id FROM saas_users WHERE mobile={p} AND id != {p}",
+        (mobile_norm, user["id"])
+    )
+    if dupe:
+        flash("Another account already uses that mobile number.", "danger")
+        return redirect(url_for("saas_auth.profile"))
+
+    if not check_rate_limit(f"change_mobile:{user['id']}", max_requests=5, window_seconds=600):
+        flash("Too many requests. Please wait before trying again.", "danger")
+        return redirect(url_for("saas_auth.profile"))
+
+    otp = generate_otp()
+    store_otp(mobile_norm, otp, "change_mobile")
+    send_sms_otp(mobile_norm, otp, "change_mobile")
+    session["pending_new_mobile"] = mobile_norm
+    audit_log("mobile_change_requested", user_id=user["id"],
+              detail=f"new_mobile={mobile_norm}")
+    flash(f"OTP sent to {mobile_norm[-4:].rjust(10, '*')}. Enter it below to confirm.", "info")
+    return redirect(url_for("saas_auth.confirm_change_mobile"))
+
+
+@saas_auth_bp.route("/profile/change-mobile/confirm", methods=["GET", "POST"])
+@saas_login_required
+def confirm_change_mobile():
+    user       = get_current_saas_user()
+    new_mobile = session.get("pending_new_mobile")
+    if not new_mobile:
+        flash("No pending mobile change. Please start again.", "warning")
+        return redirect(url_for("saas_auth.profile"))
+
+    if request.method == "POST":
+        if not validate_csrf(request.form.get("csrf_token")):
+            flash("Security error. Please try again.", "danger")
+            return redirect(url_for("saas_auth.confirm_change_mobile"))
+
+        otp = "".join(request.form.get("otp", "").split())
+
+        if not _rate_check(f"otp_verify_chgmobile:{user['id']}", limit=10, window=600):
+            return render_template("saas_auth/confirm_change.html",
+                                   field="mobile", value=new_mobile)
+
+        success, message = verify_and_consume_otp(new_mobile, otp, "change_mobile")
+        if not success:
+            audit_log("mobile_change_failed", user_id=user["id"], status="failure",
+                      detail=message)
+            flash(message, "danger")
+            return render_template("saas_auth/confirm_change.html",
+                                   field="mobile", value=new_mobile)
+
+        p = P()
+        saas_execute(
+            f"UPDATE saas_users SET mobile={p}, updated_at={p} WHERE id={p}",
+            (new_mobile, datetime.utcnow().isoformat(), user["id"])
+        )
+        session.pop("pending_new_mobile", None)
+        audit_log("mobile_changed", user_id=user["id"], detail=f"new_mobile={new_mobile}")
+        flash("Mobile number updated successfully.", "success")
+        return redirect(url_for("saas_auth.profile"))
+
+    return render_template("saas_auth/confirm_change.html", field="mobile", value=new_mobile)
+
+
 # ════════════════════════════ RESEND OTP ═════════════════════════════════════
 
 @saas_auth_bp.route("/resend-otp", methods=["POST"])
 def resend_otp():
     purpose = request.form.get("purpose", "signup_email")
-    user_id = session.get(SAAS_PENDING_USER)
+    # Pre-auth flows (signup, login-OTP) use SAAS_PENDING_USER; a logged-in
+    # user resending an OTP for a change-email/change-mobile confirmation
+    # uses their normal session instead.
+    user_id = session.get(SAAS_PENDING_USER) or session.get(SAAS_SESSION_KEY)
     if not user_id:
         return jsonify({"ok": False, "message": "Session expired."})
 
@@ -844,7 +1157,22 @@ def resend_otp():
         return jsonify({"ok": False, "message": "User not found."})
 
     otp = generate_otp()
-    if "email" in purpose:
+
+    if purpose == "change_email":
+        new_email = session.get("pending_new_email")
+        if not new_email:
+            return jsonify({"ok": False, "message": "No pending email change."})
+        store_otp(new_email, otp, purpose)
+        send_email_otp(new_email, otp, purpose)
+        msg = f"OTP resent to {new_email}"
+    elif purpose == "change_mobile":
+        new_mobile = session.get("pending_new_mobile")
+        if not new_mobile:
+            return jsonify({"ok": False, "message": "No pending mobile change."})
+        store_otp(new_mobile, otp, purpose)
+        send_sms_otp(new_mobile, otp, purpose)
+        msg = f"OTP resent to {new_mobile[-4:].rjust(10, '*')}"
+    elif "email" in purpose:
         store_otp(user["email"], otp, purpose)
         send_email_otp(user["email"], otp, purpose)
         msg = f"OTP resent to {user['email']}"

@@ -1,0 +1,108 @@
+{% extends "app_admin/base_admin.html" %}
+{% block title %}{{ user.full_name }} | App Admin{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+  <h1 style="font-size:22px; color:#fff; margin:0;">{{ user.full_name }}</h1>
+  <a href="{{ url_for('app_admin.all_users') }}"
+     style="font-size:13px; color:#9ca3af; text-decoration:none;">
+    ← Back to All Users
+  </a>
+</div>
+
+<div class="card" style="margin-bottom:20px;">
+  <h2 style="margin-top:0;">Account Details</h2>
+  <form method="POST" action="{{ url_for('app_admin.edit_user', user_id=user.id) }}" novalidate>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+      <div>
+        <label style="display:block; font-size:13px; font-weight:600; color:#9ca3af; margin-bottom:6px;">
+          Full Name
+        </label>
+        <input type="text" name="full_name" value="{{ user.full_name }}" class="form-control" required>
+      </div>
+      <div>
+        <label style="display:block; font-size:13px; font-weight:600; color:#9ca3af; margin-bottom:6px;">
+          Status
+        </label>
+        <div style="padding-top:8px;">
+          {% if user.is_active %}
+            <span class="pill pill-active">Active</span>
+          {% else %}
+            <span class="pill pill-inactive">Inactive</span>
+          {% endif %}
+          {% if user.is_verified %}
+            <span class="pill pill-active">Verified</span>
+          {% else %}
+            <span class="pill pill-pending">Not Verified</span>
+          {% endif %}
+        </div>
+      </div>
+      <div>
+        <label style="display:block; font-size:13px; font-weight:600; color:#9ca3af; margin-bottom:6px;">
+          Email
+        </label>
+        <input type="email" name="email" value="{{ user.email }}" class="form-control" required>
+      </div>
+      <div>
+        <label style="display:block; font-size:13px; font-weight:600; color:#9ca3af; margin-bottom:6px;">
+          Mobile
+        </label>
+        <input type="tel" name="mobile" value="{{ user.mobile }}" class="form-control" required>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary" style="margin-top:18px; padding:10px 24px;">
+      Save Changes
+    </button>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:20px;">
+  <h2 style="margin-top:0;">Businesses</h2>
+  <table>
+    <thead><tr><th>Business</th><th>Role</th><th>Membership Status</th></tr></thead>
+    <tbody>
+      {% for m in memberships %}
+      <tr>
+        <td>{{ m.business_name }}</td>
+        <td style="text-transform:capitalize;">{{ m.role }}</td>
+        <td>
+          {% if m.is_active %}
+            <span class="pill pill-active">Active</span>
+          {% else %}
+            <span class="pill pill-inactive">Removed</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="empty-state">No business memberships</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card" style="border-color:#7f1d1d;">
+  <h2 style="margin-top:0;">Danger Zone</h2>
+  <div style="display:flex; gap:12px; flex-wrap:wrap;">
+    <form method="POST" action="{{ url_for('app_admin.toggle_user', user_id=user.id) }}"
+          onsubmit="return confirm('{{ 'Deactivate' if user.is_active else 'Activate' }} {{ user.full_name }}? {{ 'They will be unable to log in.' if user.is_active else '' }}')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn-sm {{ 'btn-sm-danger' if user.is_active else 'btn-sm-primary' }}">
+        {{ 'Deactivate Account' if user.is_active else 'Activate Account' }}
+      </button>
+    </form>
+
+    <form method="POST" action="{{ url_for('app_admin.delete_user', user_id=user.id) }}"
+          onsubmit="return confirm('Permanently delete {{ user.full_name }} ({{ user.mobile }})? This cannot be undone.')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn-sm btn-sm-danger">
+        Delete Account Permanently
+      </button>
+    </form>
+  </div>
+  <p style="margin:12px 0 0; font-size:12px; color:#9ca3af;">
+    Deletion is blocked if this user is the sole owner of a business — reassign
+    ownership or delete that business first.
+  </p>
+</div>
+{% endblock %}

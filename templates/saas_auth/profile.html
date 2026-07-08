@@ -90,6 +90,45 @@
     </form>
   </div>
 
+  <!-- Contact details (email/mobile) — changed separately, with OTP verification -->
+  <div class="profile-card">
+    <h3 style="margin:0 0 16px; font-size:16px; font-weight:700; color:#111827;">
+      🔐 Contact Details
+    </h3>
+    <p style="margin:0 0 16px; font-size:13px; color:#6b7280;">
+      Changing your mobile number or email requires verifying the new one
+      with an OTP, so nobody else can take over your account by mistake.
+    </p>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+      <form method="POST" action="{{ url_for('saas_auth.request_change_email') }}" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label style="display:block; font-size:13px; font-weight:600;
+                      color:#374151; margin-bottom:6px;">Email Address</label>
+        <div style="display:flex; gap:8px;">
+          <input type="email" name="new_email" value="{{ user.email }}"
+                 class="form-control" required>
+          <button type="submit" class="btn btn-secondary" style="white-space:nowrap;">
+            Change
+          </button>
+        </div>
+      </form>
+
+      <form method="POST" action="{{ url_for('saas_auth.request_change_mobile') }}" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label style="display:block; font-size:13px; font-weight:600;
+                      color:#374151; margin-bottom:6px;">Mobile Number</label>
+        <div style="display:flex; gap:8px;">
+          <input type="tel" name="new_mobile" value="{{ user.mobile }}"
+                 class="form-control" maxlength="13" required>
+          <button type="submit" class="btn btn-secondary" style="white-space:nowrap;">
+            Change
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Businesses -->
   <div class="profile-card">
     <h3 style="margin:0 0 16px; font-size:16px; font-weight:700; color:#111827;">

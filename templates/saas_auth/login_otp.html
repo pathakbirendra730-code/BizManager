@@ -1,0 +1,44 @@
+{% extends "saas_auth/base_auth.html" %}
+{% block title %}Login with OTP | BizManager{% endblock %}
+{% block brand_tagline %}Sign in using a one-time code{% endblock %}
+
+{% block content %}
+<h2>Login with OTP</h2>
+<p class="auth-subtitle">Enter your registered mobile number and choose where to receive your code.</p>
+
+<form method="POST" action="{{ url_for('saas_auth.login_otp') }}" novalidate>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+  <div class="form-group">
+    <label class="form-label">Mobile Number</label>
+    <div class="input-wrapper">
+      <span class="input-prefix">+91</span>
+      <input type="tel" name="mobile" class="form-control has-prefix"
+             placeholder="98765 43210"
+             value="{{ mobile[3:] if mobile and mobile.startswith('+91') else (mobile or '') }}"
+             maxlength="10" pattern="[6-9][0-9]{9}"
+             required autocomplete="tel" autofocus>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label class="form-label">Send OTP via</label>
+    <div style="display:flex; gap:20px; margin-top:6px;">
+      <label style="display:flex; align-items:center; gap:6px; font-size:14px; color:#374151; cursor:pointer;">
+        <input type="radio" name="channel" value="mobile" checked> 📱 SMS
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; font-size:14px; color:#374151; cursor:pointer;">
+        <input type="radio" name="channel" value="email"> 📧 Email
+      </label>
+    </div>
+  </div>
+
+  <button type="submit" class="btn-primary-auth" style="margin-top:18px;">
+    Send OTP
+  </button>
+</form>
+
+<div class="auth-footer" style="margin-top:14px;">
+  <a href="{{ url_for('saas_auth.login') }}">← Back to PIN login</a>
+</div>
+{% endblock %}
