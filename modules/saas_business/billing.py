@@ -347,8 +347,8 @@ def history():
     sql  = f"SELECT * FROM saas_invoices WHERE business_id={p}"
     args = [biz_id]
     if search:
-        sql += f" AND (invoice_number LIKE {p} OR customer_name LIKE {p})"
-        args += [f"%{search}%", f"%{search}%"]
+        sql += f" AND (LOWER(invoice_number) LIKE {p} OR LOWER(customer_name) LIKE {p})"
+        args += [f"%{search.lower()}%", f"%{search.lower()}%"]
     if date_from:
         sql += f" AND DATE(created_at) >= {p}"
         args.append(date_from)

@@ -12,10 +12,13 @@ Permissions (via utils.saas_middleware):
   manage_customers  → manager and above (add/edit/delete)
 """
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+import io
+import csv
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response
 from models.saas_auth import saas_fetchone, saas_fetchall, saas_execute, _is_postgres
 from utils.saas_helpers import saas_business_required, validate_csrf, audit_log
 from utils.saas_middleware import permission_required, get_tenant_id, assert_tenant_access
+from models.saas_auth import fmt_dt
 from config import ActiveConfig
 
 saas_customers_bp = Blueprint("saas_customers", __name__, url_prefix="/biz/customers")
@@ -42,8 +45,9 @@ def index():
     args = [biz_id, biz_id]
 
     if q:
-        sql += f" AND (c.name LIKE {p} OR c.phone LIKE {p} OR c.email LIKE {p} OR c.gstin LIKE {p})"
-        args += [f"%{q}%"] * 4
+        sql += (f" AND (LOWER(c.name) LIKE {p} OR LOWER(c.phone) LIKE {p} "
+                f"OR LOWER(c.email) LIKE {p} OR LOWER(c.gstin) LIKE {p})")
+        args += [f"%{q.lower()}%"] * 4
 
     sql += " GROUP BY c.id ORDER BY c.name"
 
@@ -159,10 +163,27 @@ def delete(cid):
         flash("Customer not found.", "danger")
         return redirect(url_for("saas_customers.index"))
 
-    saas_execute(
-        f"DELETE FROM saas_customers WHERE id={p} AND business_id={p}",
-        (cid, biz_id)
-    )
+    try:
+        # saas_invoices.customer_id / saas_payments.customer_id reference
+        # this row WITHOUT ON DELETE CASCADE — deleting a customer who has
+        # any invoice or payment history would otherwise crash with a
+        # foreign-key violation. Null the reference instead: each invoice
+        # already has its own denormalized customer_name column, so
+        # invoice history stays fully readable even after the customer
+        # record itself is gone — it just becomes unlinked.
+        saas_execute(f"UPDATE saas_invoices SET customer_id=NULL WHERE customer_id={p}", (cid,))
+        saas_execute(f"UPDATE saas_payments SET customer_id=NULL WHERE customer_id={p}", (cid,))
+        saas_execute(
+            f"DELETE FROM saas_customers WHERE id={p} AND business_id={p}",
+            (cid, biz_id)
+        )
+    except Exception as e:
+        audit_log("customer_delete_failed", business_id=biz_id,
+                  entity_type="customer", entity_id=str(cid), detail=str(e))
+        flash("Could not delete this customer due to a database error. "
+              "Please try again or contact support if this persists.", "danger")
+        return redirect(url_for("saas_customers.history", cid=cid))
+
     audit_log("customer_deleted", business_id=biz_id,
               entity_type="customer", entity_id=str(cid),
               detail=f"name={customer['name']}")
@@ -198,17 +219,81 @@ def history(cid):
 
     stats_row = saas_fetchone(
         f"""SELECT COUNT(*) as cnt,
-                   COALESCE(SUM(total), 0) as total,
-                   COALESCE(AVG(total), 0) as avg
+                   COALESCE(SUM(CASE WHEN status='paid' THEN total ELSE 0 END), 0) as total,
+                   COALESCE(AVG(CASE WHEN status='paid' THEN total END), 0) as avg,
+                   COALESCE(SUM(due_amount), 0) as outstanding,
+                   COALESCE(SUM(paid_amount), 0) as total_paid
             FROM saas_invoices
-            WHERE customer_id={p} AND business_id={p} AND status='paid'""",
+            WHERE customer_id={p} AND business_id={p} AND status!='cancelled'""",
         (cid, biz_id)
     )
+
+    # Monthly sales/payments for the chart — one aggregate query (not one
+    # per month, and not one per invoice) so this stays fast regardless
+    # of invoice volume. Same cross-backend month-grouping pattern
+    # already used elsewhere in the app (TO_CHAR on Postgres, strftime
+    # on SQLite).
+    month_expr = "TO_CHAR(created_at, 'YYYY-MM')" if _is_postgres() else "strftime('%Y-%m', created_at)"
+    monthly = saas_fetchall(
+        f"""SELECT {month_expr} as month,
+                   COALESCE(SUM(total), 0) as sales,
+                   COALESCE(SUM(paid_amount), 0) as payments
+            FROM saas_invoices
+            WHERE customer_id={p} AND business_id={p} AND status!='cancelled'
+            GROUP BY {month_expr}
+            ORDER BY month DESC LIMIT 6""",
+        (cid, biz_id)
+    )
+    monthly = list(reversed(monthly))  # chronological order for the chart
 
     return render_template("saas_business/customers/history.html",
                            customer=customer,
                            invoices=invoices,
-                           stats=stats_row or {"cnt": 0, "total": 0, "avg": 0})
+                           monthly=monthly,
+                           stats=stats_row or {"cnt": 0, "total": 0, "avg": 0,
+                                                "outstanding": 0, "total_paid": 0})
+
+
+@saas_customers_bp.route("/<int:cid>/export")
+@saas_business_required
+@permission_required("view_customers")
+def export_csv(cid):
+    """CSV export of a customer's full invoice history."""
+    biz_id = get_tenant_id()
+    p = P()
+
+    customer = saas_fetchone(
+        f"SELECT * FROM saas_customers WHERE id={p} AND business_id={p}",
+        (cid, biz_id)
+    )
+    if not customer:
+        flash("Customer not found.", "danger")
+        return redirect(url_for("saas_customers.index"))
+
+    invoices = saas_fetchall(
+        f"""SELECT invoice_number, created_at, total, total_tax, paid_amount,
+                   due_amount, payment_method, status
+            FROM saas_invoices
+            WHERE customer_id={p} AND business_id={p}
+            ORDER BY created_at DESC""",
+        (cid, biz_id)
+    )
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Invoice #", "Date", "Total", "Tax", "Paid", "Due", "Payment Method", "Status"])
+    for inv in invoices:
+        writer.writerow([
+            inv["invoice_number"], fmt_dt(inv["created_at"], 16),
+            inv["total"], inv["total_tax"], inv["paid_amount"],
+            inv["due_amount"], inv["payment_method"], inv["status"]
+        ])
+
+    filename = f"{customer['name'].replace(' ', '_')}_statement.csv"
+    return Response(
+        buf.getvalue(), mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 
 # ════════════════════════════════ API SEARCH ══════════════════════════════════
@@ -217,16 +302,36 @@ def history(cid):
 @saas_business_required
 @permission_required("view_customers")
 def api_search():
+    """
+    Search customers by name, mobile, email, or GSTIN — partial match,
+    case-insensitive on both SQLite and PostgreSQL.
+
+    LIKE is case-insensitive by default on SQLite (for ASCII) but
+    case-SENSITIVE on PostgreSQL — searching "sharma" would silently
+    miss a customer named "Sharma" in production while working fine in
+    development. Wrapping both sides in LOWER() makes the match
+    identical on both engines instead of relying on ILIKE (Postgres-only,
+    not portable to SQLite).
+    """
     biz_id = get_tenant_id()
     q = request.args.get("q", "").strip()
     p = P()
 
+    if not q:
+        return jsonify([])
+
+    like = f"%{q.lower()}%"
     rows = saas_fetchall(
         f"""SELECT id, name, phone, email, state_code, gstin
             FROM saas_customers
-            WHERE business_id={p} AND (name LIKE {p} OR phone LIKE {p})
-            ORDER BY name LIMIT 8""",
-        (biz_id, f"%{q}%", f"%{q}%")
+            WHERE business_id={p} AND (
+                LOWER(name)  LIKE {p} OR
+                LOWER(phone) LIKE {p} OR
+                LOWER(email) LIKE {p} OR
+                LOWER(gstin) LIKE {p}
+            )
+            ORDER BY name LIMIT 10""",
+        (biz_id, like, like, like, like)
     )
     return jsonify(rows)
 

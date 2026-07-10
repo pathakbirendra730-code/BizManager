@@ -277,7 +277,7 @@ document.getElementById("supplierSearch").addEventListener("input", debounce(asy
   box.innerHTML = data.length
     ? data.map(s=>`<div class="dd-item" onclick="selectSupplier(${s.id},'${s.name.replace(/'/g,"\\'")}','${s.phone||""}','${s.state_code||""}','${s.gstin||""}')">
         <strong>${s.name}</strong>
-        <span class="dd-meta">${s.phone||""} ${s.gstin?"· GSTIN: "+s.gstin:""} ${s.balance>0?"· Due: ₹"+s.balance.toFixed(2):""}</span>
+        <span class="dd-meta">${s.phone||""} ${s.gstin?"· GSTIN: "+s.gstin:""} ${parseFloat(s.balance||0)>0?"· Due: ₹"+parseFloat(s.balance).toFixed(2):""}</span>
       </div>`).join("")
     : '<div class="dd-item muted">No suppliers found</div>';
   box.classList.remove("hidden");
@@ -359,5 +359,18 @@ document.addEventListener("click", e => {
   if(!e.target.closest(".pos-search-bar")) hide("searchResults");
   if(!e.target.closest(".pos-card")) hide("supplierResults");
 });
+
+// Prefill the supplier when arriving via a "New Purchase" link from a
+// supplier's dashboard (?supplier_id=X) — Update_013 workflow improvement.
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  const prefillId = params.get("supplier_id");
+  if (!prefillId) return;
+  const allSuppliers = {{ suppliers | tojson }};
+  const match = allSuppliers.find(s => String(s.id) === String(prefillId));
+  if (match) {
+    selectSupplier(match.id, match.name, match.phone || "", match.state_code || "", match.gstin || "");
+  }
+})();
 </script>
 {% endblock %}

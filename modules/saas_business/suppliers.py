@@ -11,11 +11,14 @@ Permissions (via utils.saas_middleware):
   manage_supplier  → manager and above
 """
 
+import io
+import csv
 from datetime import datetime
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session, Response
 from models.saas_auth import saas_fetchone, saas_fetchall, saas_execute, _is_postgres
 from utils.saas_helpers import saas_business_required, validate_csrf, audit_log
 from utils.saas_middleware import permission_required, get_tenant_id, assert_tenant_access
+from models.saas_auth import fmt_dt
 from config import ActiveConfig
 
 saas_suppliers_bp = Blueprint("saas_suppliers", __name__, url_prefix="/biz/suppliers")
@@ -46,8 +49,8 @@ def index():
     if show == "active":
         sql += " AND s.is_active=TRUE"
     if q:
-        sql += f" AND (s.name LIKE {p} OR s.phone LIKE {p} OR s.gstin LIKE {p})"
-        args += [f"%{q}%"] * 3
+        sql += f" AND (LOWER(s.name) LIKE {p} OR LOWER(s.phone) LIKE {p} OR LOWER(s.email) LIKE {p} OR LOWER(s.gstin) LIKE {p})"
+        args += [f"%{q.lower()}%"] * 4
     sql += " GROUP BY s.id ORDER BY s.name"
 
     suppliers = saas_fetchall(sql, tuple(args))
@@ -229,11 +232,68 @@ def ledger(sid):
         (sid, biz_id)
     )
 
+    # One aggregate query for the monthly chart — not one query per month
+    # or per purchase, so this stays responsive at any purchase volume.
+    month_expr = "TO_CHAR(created_at, 'YYYY-MM')" if _is_postgres() else "strftime('%Y-%m', created_at)"
+    monthly = saas_fetchall(
+        f"""SELECT {month_expr} as month,
+                   COALESCE(SUM(total), 0) as purchases,
+                   COALESCE(SUM(paid_amount), 0) as payments
+            FROM saas_purchases
+            WHERE supplier_id={p} AND business_id={p} AND status!='cancelled'
+            GROUP BY {month_expr}
+            ORDER BY month DESC LIMIT 6""",
+        (sid, biz_id)
+    )
+    monthly = list(reversed(monthly))
+
     return render_template("saas_business/suppliers/ledger.html",
                            supplier=supplier,
                            purchases=purchases,
+                           monthly=monthly,
                            stats=stats or {"cnt": 0, "total_purchased": 0,
                                             "total_paid": 0, "total_due": 0})
+
+
+@saas_suppliers_bp.route("/<int:sid>/export")
+@saas_business_required
+@permission_required("view_supplier")
+def export_csv(sid):
+    """CSV export of a supplier's full purchase history."""
+    biz_id = get_tenant_id()
+    p = P()
+
+    supplier = saas_fetchone(
+        f"SELECT * FROM saas_suppliers WHERE id={p} AND business_id={p}", (sid, biz_id)
+    )
+    if not supplier:
+        flash("Supplier not found.", "danger")
+        return redirect(url_for("saas_suppliers.index"))
+
+    purchases = saas_fetchall(
+        f"""SELECT purchase_number, created_at, total, paid_amount, due_amount,
+                   payment_method, status
+            FROM saas_purchases
+            WHERE supplier_id={p} AND business_id={p}
+            ORDER BY created_at DESC""",
+        (sid, biz_id)
+    )
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Purchase #", "Date", "Total", "Paid", "Due", "Payment Method", "Status"])
+    for pur in purchases:
+        writer.writerow([
+            pur["purchase_number"], fmt_dt(pur["created_at"], 16),
+            pur["total"], pur["paid_amount"], pur["due_amount"],
+            pur["payment_method"], pur["status"]
+        ])
+
+    filename = f"{supplier['name'].replace(' ', '_')}_statement.csv"
+    return Response(
+        buf.getvalue(), mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 
 # ════════════════════════════════ RECORD PAYMENT ══════════════════════════════
@@ -328,17 +388,30 @@ def record_payment(sid):
 @saas_business_required
 @permission_required("view_supplier")
 def api_search():
+    """Search suppliers by name, mobile, email, or GSTIN — partial match,
+    case-insensitive on both SQLite and PostgreSQL. See the matching
+    docstring in customers.py:api_search() for why LOWER() is used
+    instead of LIKE/ILIKE directly."""
     biz_id = get_tenant_id()
     q = request.args.get("q", "").strip()
     p = P()
 
+    if not q:
+        return jsonify([])
+
+    like = f"%{q.lower()}%"
     rows = saas_fetchall(
-        f"""SELECT id, name, phone, gstin, state_code, balance
+        f"""SELECT id, name, phone, email, gstin, state_code, balance
             FROM saas_suppliers
             WHERE business_id={p} AND is_active=TRUE
-              AND (name LIKE {p} OR phone LIKE {p} OR gstin LIKE {p})
+              AND (
+                LOWER(name)  LIKE {p} OR
+                LOWER(phone) LIKE {p} OR
+                LOWER(email) LIKE {p} OR
+                LOWER(gstin) LIKE {p}
+              )
             ORDER BY name LIMIT 10""",
-        (biz_id, f"%{q}%", f"%{q}%", f"%{q}%")
+        (biz_id, like, like, like, like)
     )
     return jsonify(rows)
 

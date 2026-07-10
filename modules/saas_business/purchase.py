@@ -252,8 +252,8 @@ def history():
     sql  = f"SELECT * FROM saas_purchases WHERE business_id={p}"
     args = [biz_id]
     if search:
-        sql += f" AND (purchase_number LIKE {p} OR supplier_name LIKE {p} OR bill_number LIKE {p})"
-        args += [f"%{search}%"] * 3
+        sql += f" AND (LOWER(purchase_number) LIKE {p} OR LOWER(supplier_name) LIKE {p} OR LOWER(bill_number) LIKE {p})"
+        args += [f"%{search.lower()}%"] * 3
     if date_from:
         sql += f" AND DATE(created_at) >= {p}"
         args.append(date_from)

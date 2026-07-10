@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+{% import "_macros.html" as m %}
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -55,7 +56,7 @@ td{padding:7px 9px;border-bottom:1px solid #eee;font-size:11px}
 <div class="parties">
   <div>
     <div class="sec-title">Purchased From (Supplier)</div>
-    <p><strong>{{ purchase.supplier_name or 'Unknown Supplier' }}</strong><br>
+    <p><strong>{{ m.supplier_link(purchase.supplier_id, purchase.supplier_name or 'Unknown Supplier') }}</strong><br>
     {% if purchase.supplier_gstin %}GSTIN: {{ purchase.supplier_gstin }}<br>{% endif %}
     Supplier Bill#: {{ purchase.bill_number or '—' }}<br>
     Bill Date: {{ purchase.bill_date }}</p>

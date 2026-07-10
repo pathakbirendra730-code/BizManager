@@ -51,47 +51,19 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/otp-entry.js') }}"></script>
 <script>
 (function() {
-  const digits = document.querySelectorAll('.otp-digit');
-  const hidden = document.getElementById('otpHidden');
-  const btn    = document.getElementById('verifyBtn');
-  const form   = document.getElementById('otpForm');
   const resend = document.getElementById('resendBtn');
 
-  digits.forEach((el, i) => {
-    el.addEventListener('keydown', e => {
-      if (e.key === 'Backspace' && !el.value && i > 0) digits[i-1].focus();
-    });
-    el.addEventListener('input', e => {
-      e.target.value = e.target.value.replace(/\D/g,'').slice(0,1);
-      if (e.target.value && i < 5) digits[i+1].focus();
-      sync();
-    });
-    el.addEventListener('paste', e => {
-      e.preventDefault();
-      const p = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g,'').slice(0,6);
-      p.split('').forEach((ch,idx) => { if(digits[idx]) digits[idx].value = ch; });
-      if (p.length === 6) digits[5].focus();
-      sync();
-    });
-  });
-
-  function sync() {
-    const otp = [...digits].map(d => d.value).join('');
-    hidden.value = otp;
-    btn.disabled = otp.length !== 6;
-  }
-
-  digits[5].addEventListener('input', () => {
-    const otp = [...digits].map(d => d.value).join('');
-    if (otp.length === 6) setTimeout(() => form.submit(), 300);
-  });
-
-  form.addEventListener('submit', function() {
-    btn.disabled = true;
-    btn.textContent = 'Verifying…';
-  });
+  // See static/js/otp-entry.js — this replaces the old inline script,
+  // which had no working double-submit guard at all (just a bare
+  // setTimeout(() => form.submit(), 300)). That's the root cause of
+  // "No OTP request found" on second/subsequent admin logins: typing
+  // the 6th digit both enabled the Verify button AND scheduled an
+  // auto-submit, so a manual click could fire a second, losing request
+  // against an OTP the first request had already consumed.
+  initOtpEntry({});
 
   resend.addEventListener('click', function() {
     resend.disabled = true;

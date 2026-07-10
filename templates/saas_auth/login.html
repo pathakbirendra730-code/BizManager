@@ -95,13 +95,32 @@
     });
   });
 
+  // Same double-submit race as the OTP screens (see static/js/otp-entry.js
+  // for the full explanation): form.submit() called from JS does NOT fire
+  // the 'submit' event, so a guard flag set only inside the submit
+  // listener never actually blocks the auto-submit timer's own call.
+  // Fixed the same way — a flag set synchronously at the start of
+  // whichever path (auto-submit or manual click) runs first.
+  let submitted = false;
+
   function syncPin() {
     const pin = [...pinDigits].map(d => d.value).join('');
     pinHidden.value = pin;
     if (pin.length === 6) {
-      setTimeout(() => form.submit(), 300); // auto-submit on complete PIN
+      setTimeout(guardedSubmit, 300);
     }
     updateBtn();
+  }
+
+  function guardedSubmit() {
+    if (submitted) return;
+    const mobile = mobileInput.value.replace(/\D/g, '');
+    const pin    = [...pinDigits].map(d => d.value).join('');
+    if (!(mobile.length === 10 && pin.length === 6)) return;
+    submitted = true;
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Signing in…';
+    form.submit();
   }
 
   function updateBtn() {
@@ -110,7 +129,9 @@
     loginBtn.disabled = !(mobile.length === 10 && pin.length === 6);
   }
 
-  form.addEventListener('submit', function() {
+  form.addEventListener('submit', function(e) {
+    if (submitted) { e.preventDefault(); return; }
+    submitted = true;
     loginBtn.disabled = true;
     loginBtn.textContent = 'Signing in…';
   });

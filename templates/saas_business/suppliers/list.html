@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}Suppliers | BizManager{% endblock %}
 {% block page_title %}Suppliers — {{ saas_biz_name }}{% endblock %}
 
@@ -44,7 +45,7 @@
         {% for s in suppliers %}
         <tr>
           <td class="text-muted small">{{ loop.index }}</td>
-          <td><strong>{{ s.name }}</strong><br><small class="text-muted">{{ s.email or '' }}</small></td>
+          <td><strong>{{ m.supplier_link(s.id, s.name) }}</strong><br><small class="text-muted">{{ s.email or '' }}</small></td>
           <td>{{ s.phone or '—' }}</td>
           <td><code>{{ s.gstin or '—' }}</code></td>
           <td>{{ s.state_code or '—' }}</td>

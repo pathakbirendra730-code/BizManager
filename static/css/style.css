@@ -416,3 +416,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:.8rem;colo
 .dash-section-title:first-child{margin-top:0}
 .action-grid .card{transition:transform var(--t),box-shadow var(--t)}
 .action-grid .card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);border-color:var(--primary)}
+
+/* Update_013 Issue 5 — clickable customer/supplier names (templates/_macros.html) */
+.entity-link{color:var(--primary,#4f46e5);font-weight:600;text-decoration:none;border-bottom:1px dashed transparent}
+.entity-link:hover{border-bottom-color:var(--primary,#4f46e5)}

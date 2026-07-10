@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}Purchase History{% endblock %}
 {% block page_title %}Purchase History{% endblock %}
 {% block content %}
@@ -49,7 +50,7 @@
       {% for p in purchases %}
       <tr class="{% if p.due_amount>0 and p.status!='cancelled' %}row-warning{% elif p.status=='cancelled' %}row-danger{% endif %}">
         <td><strong>{{ p.purchase_number }}</strong></td>
-        <td>{{ p.supplier_name or '—' }}</td>
+        <td>{{ m.supplier_link(p.supplier_id, p.supplier_name or '—') }}</td>
         <td>{{ p.bill_number or '—' }}</td>
         <td>{{ p.bill_date }}</td>
         <td>₹{{ "%.2f"|format(p.subtotal) }}</td>

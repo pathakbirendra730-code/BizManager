@@ -207,12 +207,36 @@
   let currentMode = null; // 'mobile_pin' | 'username_password' | null
 
   // ── Client-side classification (mirrors server-side rule exactly) ─────────
+  //
+  // BUG FIXED (Update_013): this used to fall through to
+  // 'username_password' the instant ANY non-10-digit value was typed —
+  // including a single digit "9", one keystroke into a mobile number.
+  // That immediately swapped in the password field and (worse) auto-
+  // focused it, yanking the cursor away while the person was still in
+  // the middle of typing their mobile number (or, for an actual
+  // username, before they'd typed more than one character of it).
+  //
+  // Fix: while the value is still PURELY numeric and not yet longer
+  // than a mobile number, treat it as "undecided — still typing a
+  // phone number" and don't commit to either mode yet, instead of
+  // guessing it's a finished username after a single keystroke.
   function classify(value) {
-    const digits = value.replace(/\D/g, '');
-    let d = digits;
-    if (d.startsWith('91') && d.length === 12) d = d.slice(2);
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return null;
+
+    let d = trimmed.replace(/\D/g, '');
+    if (d.startsWith('91') && d.length > 10) d = d.slice(2);
+
     if (d.length === 10 && /^[6-9]/.test(d)) return 'mobile_pin';
-    if (value.trim().length === 0) return null;
+
+    // Purely digits so far (optionally with a 91/+91 prefix) and not
+    // yet longer than a complete mobile number — could still become a
+    // valid mobile number with more typing, so don't decide yet.
+    const isNumericSoFar = /^\+?[0-9]*$/.test(trimmed);
+    if (isNumericSoFar && d.length > 0 && d.length <= 12) {
+      return null;
+    }
+
     return 'username_password';
   }
 
@@ -239,7 +263,11 @@
       hintRow.innerHTML = '<span class="hint-badge admin">Admin Login</span><span>Password + OTP required</span>';
       submitBtn.textContent = 'Continue →';
       submitBtn.classList.add('admin-mode');
-      setTimeout(() => pwInput.focus(), 200);
+      // NOT auto-focused (see classify() comment above) — unlike a
+      // mobile number, there's no way to detect "finished typing a
+      // user ID" from keystrokes alone, so jumping focus here would
+      // interrupt typing the same way the premature classification did.
+      // The password field is simply revealed; Tab or a click moves to it.
     } else {
       stage2.classList.remove('visible');
       hintRow.innerHTML = '';

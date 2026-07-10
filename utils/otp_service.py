@@ -128,6 +128,30 @@ def verify_and_consume_otp(identifier: str, otp: str, purpose: str) -> tuple[boo
         row = c.fetchone()
 
         if not row:
+            # No unused token for this identifier+purpose. Before treating
+            # this as a hard failure, check whether this is a DUPLICATE
+            # submission of an OTP that a race-condition twin request
+            # already verified moments ago (e.g. a double form-submit —
+            # see static/js/otp-entry.js for the client-side half of this
+            # fix). If the most recently consumed token for this
+            # identifier+purpose matches the OTP just submitted AND was
+            # consumed within the last 30 seconds, this is that same
+            # legitimate verification arriving twice, not a fabricated
+            # OTP — treat it as success rather than confusing the user
+            # with "No OTP request found" for a code that actually worked.
+            c.execute(
+                f"SELECT * FROM saas_otp_tokens "
+                f"WHERE identifier={p} AND purpose={p} AND used_at IS NOT NULL "
+                f"ORDER BY used_at DESC LIMIT 1",
+                (identifier, purpose)
+            )
+            recent = c.fetchone()
+            if recent:
+                recent = dict(recent)
+                used_at = parse_dt(recent["used_at"])
+                if (used_at and (datetime.utcnow() - used_at).total_seconds() < 30
+                        and verify_otp_hash(otp, recent["otp_hash"])):
+                    return True, "OTP verified successfully."
             return False, "No OTP request found. Please request a new OTP."
 
         token = dict(row)

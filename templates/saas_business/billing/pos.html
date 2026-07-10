@@ -302,7 +302,7 @@ document.getElementById("customerSearch").addEventListener("input", debounce(asy
   box.innerHTML = data.length
     ? data.map(c => `<div class="dd-item" onclick="selectCustomer(${c.id},'${c.name.replace(/'/g,"\\'")}','${c.phone||""}','${c.state_code||""}','${c.gstin||""}')">
         <strong>${c.name}</strong>
-        <span class="dd-meta">${c.phone||""} ${c.gstin ? "· GSTIN: "+c.gstin : ""} ${c.state_code ? "· State: "+c.state_code : ""}</span>
+        <span class="dd-meta">${c.phone||""} ${c.email ? "· "+c.email : ""} ${c.gstin ? "· GSTIN: "+c.gstin : ""} ${c.state_code ? "· State: "+c.state_code : ""}</span>
       </div>`).join("")
     : '<div class="dd-item muted">No results</div>';
   box.classList.remove("hidden");
@@ -419,5 +419,18 @@ document.querySelectorAll(".pay-btn").forEach(b =>
     document.querySelectorAll(".pay-btn").forEach(x => x.classList.remove("active"));
     b.classList.add("active");
   }));
+
+// Prefill the customer when arriving via a "New Invoice" link from a
+// customer's dashboard (?customer_id=X) — Update_013 workflow improvement.
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  const prefillId = params.get("customer_id");
+  if (!prefillId) return;
+  const allCustomers = {{ customers | tojson }};
+  const match = allCustomers.find(c => String(c.id) === String(prefillId));
+  if (match) {
+    selectCustomer(match.id, match.name, match.phone || "", match.state_code || "", match.gstin || "");
+  }
+})();
 </script>
 {% endblock %}

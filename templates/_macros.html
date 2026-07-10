@@ -1,0 +1,37 @@
+{#
+  templates/_macros.html
+  ======================
+  One reusable place for "click a customer/supplier name to open their
+  dashboard" (BizManager-v6 Update_013, Issue 5) — every list, history,
+  ledger, and report page imports these instead of each hand-rolling its
+  own <a href="..."> to the customer/supplier dashboard route.
+
+  Usage:
+    {% import "_macros.html" as m %}
+    {{ m.customer_link(inv.customer_id, inv.customer_name) }}
+    {{ m.supplier_link(pur.supplier_id, pur.supplier_name) }}
+
+  Both gracefully fall back to plain (non-linked) text if the id is
+  missing/None — e.g. a walk-in customer with no saas_customers row, or
+  an invoice/purchase whose customer_id was nulled out after that
+  customer was deleted (see customers.py delete() / suppliers.py
+  delete()) — so old records never render a broken link.
+#}
+
+{% macro customer_link(customer_id, name) -%}
+{%- if customer_id -%}
+<a href="{{ url_for('saas_customers.history', cid=customer_id) }}"
+   class="entity-link" title="Open {{ name }}'s dashboard">{{ name }}</a>
+{%- else -%}
+{{ name }}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro supplier_link(supplier_id, name) -%}
+{%- if supplier_id -%}
+<a href="{{ url_for('saas_suppliers.ledger', sid=supplier_id) }}"
+   class="entity-link" title="Open {{ name }}'s dashboard">{{ name }}</a>
+{%- else -%}
+{{ name }}
+{%- endif -%}
+{%- endmacro %}

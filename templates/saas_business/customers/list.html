@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}Customers | BizManager{% endblock %}
 {% block page_title %}Customers — {{ saas_biz_name }}{% endblock %}
 
@@ -36,7 +37,7 @@
         {% for c in customers %}
         <tr>
           <td class="text-muted small">{{ loop.index }}</td>
-          <td><strong>{{ c.name }}</strong></td>
+          <td><strong>{{ m.customer_link(c.id, c.name) }}</strong></td>
           <td>{{ c.phone or '—' }}</td>
           <td><code>{{ c.gstin or '—' }}</code></td>
           <td>{{ c.state_code or '—' }}</td>

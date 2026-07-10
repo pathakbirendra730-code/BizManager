@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+{% import "_macros.html" as m %}
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -105,7 +106,7 @@ td{padding:7px 9px;border-bottom:1px solid #eee;font-size:11px}
 <div class="parties">
   <div>
     <div class="sec-title">Bill To</div>
-    <p><strong style="font-size:13px">{{ invoice.customer_name or 'Walk-in Customer' }}</strong>
+    <p><strong style="font-size:13px">{{ m.customer_link(invoice.customer_id, invoice.customer_name or 'Walk-in Customer') }}</strong>
     {% if invoice.customer_gstin %}<br>GSTIN: {{ invoice.customer_gstin }}{% endif %}
     {% if invoice.customer_state %}<br>State: {{ invoice.customer_state }}{% endif %}
     <br>Payment: {{ invoice.payment_method }}</p>

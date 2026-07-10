@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}Bill History{% endblock %}
 {% block page_title %}Invoice History{% endblock %}
 {% block content %}
@@ -46,7 +47,7 @@
       {% for inv in invoices %}
       <tr class="{% if inv.status=='cancelled' %}row-danger{% elif inv.due_amount > 0 %}row-warning{% endif %}">
         <td><strong>{{ inv.invoice_number }}</strong></td>
-        <td>{{ inv.customer_name or 'Walk-in' }}</td>
+        <td>{{ m.customer_link(inv.customer_id, inv.customer_name or 'Walk-in') }}</td>
         <td>₹{{ "%.2f"|format(inv.total) }}</td>
         <td class="text-success">₹{{ "%.2f"|format(inv.paid_amount or 0) }}</td>
         <td class="{{ 'text-danger' if inv.due_amount > 0 else 'text-muted' }}">₹{{ "%.2f"|format(inv.due_amount or 0) }}</td>
