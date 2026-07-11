@@ -11,7 +11,19 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class Config:
     # ── Security ───────────────────────────────────────────────────────────
-    SECRET_KEY = os.environ.get("BMS_SECRET", "bms-multishop-secret-2024-CHANGE-ME")
+    # No hardcoded fallback here on purpose. A previous version of this file
+    # fell back to a fixed string ("bms-multishop-secret-2024-CHANGE-ME") if
+    # BMS_SECRET wasn't set — which meant ANY deployment that accidentally
+    # ran as DevelopmentConfig (e.g. APP_ENV missing/misconfigured, which
+    # has happened on this project before) would silently sign session
+    # cookies with a secret anyone could read in this source file, letting
+    # them forge valid sessions for any user. Failing loudly at startup
+    # when BMS_SECRET isn't set is far safer than failing silently at
+    # runtime with a known-weak key — see the check at the bottom of this
+    # file. Set BMS_SECRET in your environment (e.g. `python -c
+    # "import secrets; print(secrets.token_hex(32))"`), including for
+    # local development — there is no dev-only exemption anymore.
+    SECRET_KEY = os.environ.get("BMS_SECRET")
     SESSION_PERMANENT   = False
     SESSION_COOKIE_NAME = "bms_session"
 
@@ -56,9 +68,13 @@ class Config:
         ("37", "Andhra Pradesh (New)"),
     ]
 
-    # ── Super-admin default credentials (changed on first login) ──────────
-    SUPERADMIN_USERNAME = "superadmin"
-    SUPERADMIN_PASSWORD = "Super@1234"   # bcrypt hashed on seed
+    # NOTE: there used to be a SUPERADMIN_USERNAME/SUPERADMIN_PASSWORD pair
+    # of hardcoded default credentials here. Confirmed (Update_016 security
+    # audit) they were dead code — nothing in the codebase referenced them;
+    # app_admin account creation uses the bootstrap-token + CLI script flow
+    # instead (see modules/app_admin/routes.py and scripts/create_app_admin.py).
+    # Removed rather than left sitting in source as an unused but
+    # real-looking credential pair.
 
 
 class DevelopmentConfig(Config):
@@ -91,3 +107,13 @@ class ProductionConfig(Config):
 # ── Active config: driven by APP_ENV environment variable ─────────────────────
 _env = os.environ.get("APP_ENV", "development").lower()
 ActiveConfig = ProductionConfig if _env == "production" else DevelopmentConfig
+
+if not ActiveConfig.SECRET_KEY:
+    raise RuntimeError(
+        "BMS_SECRET environment variable is not set. Refusing to start with "
+        "no session secret key — this would either crash on first use or, "
+        "worse, silently sign every session with a predictable value. Set "
+        "BMS_SECRET (a long random string, e.g. via "
+        "`python -c \"import secrets; print(secrets.token_hex(32))\"`) in "
+        "your environment and restart."
+    )

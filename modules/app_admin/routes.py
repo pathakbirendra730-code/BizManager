@@ -34,7 +34,7 @@ from models.saas_auth import saas_fetchone, saas_fetchall, saas_execute, _is_pos
 from utils.otp_manager import otp_manager
 from utils.auth_service import auth_service
 from utils.saas_helpers import (
-    validate_csrf, generate_csrf_token, audit_log, check_rate_limit
+    validate_csrf, generate_csrf_token, audit_log, check_rate_limit, client_ip
 )
 
 app_admin_bp = Blueprint("app_admin", __name__, url_prefix="/app-admin")
@@ -45,11 +45,6 @@ ADMIN_SESSION_KEY = "admin_id"
 ADMIN_PENDING_KEY = "admin_pending_id"   # set after step-1, before OTP verified
 
 IS_PROD = os.environ.get("APP_ENV", "development").lower() == "production"
-
-
-def _client_ip():
-    fwd = request.headers.get("X-Forwarded-For", "")
-    return fwd.split(",")[0].strip() if fwd else (request.remote_addr or "")
 
 
 def _is_app_admin_session() -> bool:
@@ -214,7 +209,7 @@ def login():
         user_id  = request.form.get("user_id", "").strip()
         password = request.form.get("password", "")
 
-        if not _rate_limit_ok(f"admin_login:{_client_ip()}"):
+        if not _rate_limit_ok(f"admin_login:{client_ip()}"):
             flash("Too many login attempts. Please wait a few minutes.", "danger")
             return render_template("app_admin/login.html", user_id=user_id)
 
@@ -310,6 +305,9 @@ def verify_otp():
 
 @app_admin_bp.route("/resend-otp", methods=["POST"])
 def resend_otp():
+    if not validate_csrf(request.form.get("csrf_token")):
+        return jsonify({"ok": False, "message": "Security error. Please refresh and try again."})
+
     admin_pk = session.get(ADMIN_PENDING_KEY)
     if not admin_pk:
         return jsonify({"ok": False, "message": "Session expired."})

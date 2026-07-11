@@ -94,6 +94,9 @@ def save_invoice():
     if not data:
         return jsonify({"success": False, "message": "No data received"}), 400
 
+    if not validate_csrf(data.get("csrf_token")):
+        return jsonify({"success": False, "message": "Security error. Please refresh and try again."}), 403
+
     items         = data.get("items", [])
     customer_id   = data.get("customer_id") or None
     customer_name = data.get("customer_name", "Walk-in Customer")

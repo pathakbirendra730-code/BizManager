@@ -302,6 +302,20 @@ def _init_sqlite(c):
         created_at          TEXT    DEFAULT (datetime('now'))
     )""")
 
+    # ── saas_rate_limits ──────────────────────────────────────────────────────
+    # Backs check_rate_limit() in utils/saas_helpers.py. Was previously an
+    # in-process Python dict, which is NOT shared across Gunicorn's multiple
+    # worker processes (workers=2 in gunicorn.conf.py) — meaning an attacker's
+    # requests landing on different workers each got their own independent
+    # counter, roughly doubling (or more, on worker recycling) their real
+    # allowed rate for login/OTP/PIN-reset brute-force attempts. The database
+    # is the one thing actually shared across every worker, so it's the
+    # correct backing store here without adding a new dependency (e.g. Redis).
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_rate_limits (
+        rl_key          TEXT PRIMARY KEY,
+        count           INTEGER NOT NULL DEFAULT 1,
+        window_start    TEXT    NOT NULL
+    )""")
 
     indexes = [
         "CREATE INDEX IF NOT EXISTS idx_saas_users_mobile ON saas_users(mobile)",
@@ -465,6 +479,15 @@ def _init_postgres(c):
         attempts            INTEGER      NOT NULL DEFAULT 1,
         error               TEXT,
         created_at          TIMESTAMP    DEFAULT NOW()
+    )""")
+
+    # ── saas_rate_limits ────────────────────────────────────────────────────
+    # See the matching comment in _init_sqlite() above — DB-backed so the
+    # rate limiter is actually shared across every Gunicorn worker process.
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_rate_limits (
+        rl_key          VARCHAR(255) PRIMARY KEY,
+        count           INTEGER      NOT NULL DEFAULT 1,
+        window_start    TIMESTAMP    NOT NULL
     )""")
 
     # Indexes

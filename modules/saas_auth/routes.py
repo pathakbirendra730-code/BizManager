@@ -37,7 +37,7 @@ from utils.saas_helpers import (
     generate_slug, generate_reset_token,
     validate_pin, validate_mobile,
     audit_log, generate_csrf_token, validate_csrf, csrf_protect,
-    check_rate_limit, get_avatar_initials,
+    check_rate_limit, get_avatar_initials, client_ip,
     saas_login_required, saas_business_required,
     SAAS_SESSION_KEY, SAAS_BIZ_KEY, SAAS_ROLE_KEY,
     SAAS_PENDING_USER, SAAS_PENDING_MOBILE, SAAS_PENDING_EMAIL
@@ -63,11 +63,6 @@ saas_auth_bp = Blueprint("saas_auth", __name__, url_prefix="/saas")
 
 
 # ══════════════════════════════ HELPERS ══════════════════════════════════════
-
-def _client_ip():
-    fwd = request.headers.get("X-Forwarded-For", "")
-    return fwd.split(",")[0].strip() if fwd else (request.remote_addr or "")
-
 
 def _rate_check(key: str, limit: int = 5, window: int = 300) -> bool:
     if not check_rate_limit(key, limit, window):
@@ -200,7 +195,7 @@ def signup():
                                    full_name=full_name, mobile=mobile, email=email)
 
         # ── Rate limit ─────────────────────────────────────────────────────
-        if not _rate_check(f"signup:{_client_ip()}", limit=10, window=3600):
+        if not _rate_check(f"signup:{client_ip()}", limit=10, window=3600):
             return render_template("saas_auth/signup.html")
 
         p = P()
@@ -571,7 +566,7 @@ def login():
             return render_template("saas_auth/login.html", mobile=mobile)
 
         # ── Rate limit on login attempts ───────────────────────────────────
-        rl_key = f"login:{mobile_norm}:{_client_ip()}"
+        rl_key = f"login:{mobile_norm}:{client_ip()}"
         if not check_rate_limit(rl_key, max_requests=10, window_seconds=600):
             audit_log("login_rate_limited", status="failure",
                       detail=f"mobile={mobile_norm}")
@@ -656,6 +651,11 @@ def select_business():
     businesses = get_user_businesses(user_id)
 
     if request.method == "POST":
+        if not validate_csrf(request.form.get("csrf_token")):
+            flash("Security error. Please try again.", "danger")
+            return render_template("saas_auth/select_business.html",
+                                   businesses=businesses)
+
         biz_id = request.form.get("business_id", type=int)
         if not biz_id:
             flash("Please select a business.", "warning")
@@ -851,7 +851,7 @@ def login_otp():
             flash(mobile_norm, "danger")
             return render_template("saas_auth/login_otp.html", mobile=mobile)
 
-        rl_key = f"login_otp:{mobile_norm}:{_client_ip()}"
+        rl_key = f"login_otp:{mobile_norm}:{client_ip()}"
         if not check_rate_limit(rl_key, max_requests=10, window_seconds=600):
             audit_log("login_otp_rate_limited", status="failure",
                       detail=f"mobile={mobile_norm}")
@@ -1217,6 +1217,9 @@ def confirm_change_mobile():
 
 @saas_auth_bp.route("/resend-otp", methods=["POST"])
 def resend_otp():
+    if not validate_csrf(request.form.get("csrf_token")):
+        return jsonify({"ok": False, "message": "Security error. Please refresh and try again."})
+
     purpose = request.form.get("purpose", "signup_email")
     # Pre-auth flows (signup, login-OTP) use SAAS_PENDING_USER; a logged-in
     # user resending an OTP for a change-email/change-mobile confirmation

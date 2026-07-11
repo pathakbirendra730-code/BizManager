@@ -362,7 +362,8 @@ async function saveBill() {
     discount_pct:   parseFloat(document.getElementById("discPct").value) || 0,
     payment_method: document.querySelector("input[name=payment]:checked").value,
     paid_amount:    parseFloat(document.getElementById("paidAmountInput").value) || 0,
-    notes:          document.getElementById("billNotes").value
+    notes:          document.getElementById("billNotes").value,
+    csrf_token:     "{{ csrf_token }}"
   };
   try {
     const res  = await fetch("/biz/billing/save", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload) });

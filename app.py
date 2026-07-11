@@ -26,7 +26,8 @@ _token = os.environ.get("BOOTSTRAP_ADMIN_TOKEN", "")
 print(f"[startup] BOOTSTRAP_ADMIN_TOKEN is set: {bool(_token)} "
       f"(length: {len(_token)})")
 
-from flask import Flask, redirect, url_for, session
+from flask import Flask, redirect, url_for, session, request, Response
+from werkzeug.middleware.proxy_fix import ProxyFix
 from config import ActiveConfig
 from models.database import init_db
 
@@ -43,6 +44,26 @@ def create_app():
     app.config["SESSION_PERMANENT"]     = ActiveConfig.SESSION_PERMANENT
     app.config["SESSION_COOKIE_NAME"]   = ActiveConfig.SESSION_COOKIE_NAME
     app.config["MAX_CONTENT_LENGTH"]    = ActiveConfig.MAX_CONTENT_LENGTH
+
+    # Cookie security — defined in config.py's ProductionConfig but never
+    # previously copied into app.config, so they had zero effect even in
+    # production. getattr(...) with a safe default so DevelopmentConfig
+    # (which doesn't define these) doesn't crash.
+    app.config["SESSION_COOKIE_SECURE"]   = getattr(ActiveConfig, "SESSION_COOKIE_SECURE", False)
+    app.config["SESSION_COOKIE_HTTPONLY"] = getattr(ActiveConfig, "SESSION_COOKIE_HTTPONLY", True)
+    app.config["SESSION_COOKIE_SAMESITE"] = getattr(ActiveConfig, "SESSION_COOKIE_SAMESITE", "Lax")
+    app.config["PREFERRED_URL_SCHEME"]    = getattr(ActiveConfig, "PREFERRED_URL_SCHEME", "http")
+
+    # Render (like effectively every PaaS) terminates TLS at a reverse proxy
+    # and forwards the request to Gunicorn over plain HTTP internally,
+    # setting X-Forwarded-Proto/X-Forwarded-For/X-Forwarded-Host. Without
+    # this, request.is_secure is FALSE for every single request even in
+    # production — which means SESSION_COOKIE_SECURE above (and any HSTS
+    # header, and url_for(_external=True)) would silently misbehave.
+    # x_for/x_proto/x_host=1 matches Render's single proxy hop exactly —
+    # trusting more hops than actually exist would let a client spoof
+    # these headers themselves.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     @app.template_filter("dtfmt")
     def dtfmt(value, chars=16):
@@ -146,7 +167,49 @@ def create_app():
         response.headers["X-Frame-Options"]        = "SAMEORIGIN"
         response.headers["X-XSS-Protection"]       = "1; mode=block"
         response.headers["Referrer-Policy"]        = "strict-origin-when-cross-origin"
+
+        # Content-Security-Policy: this app relies heavily on inline <script>
+        # and inline style="" throughout its templates (a larger, separate
+        # cleanup to remove — see Update_015 changelog), so 'unsafe-inline'
+        # is required for script-src/style-src for now rather than breaking
+        # every page. This CSP still meaningfully blocks the actual attack
+        # this protects against: an injected <script src="evil.com/x.js">
+        # or <iframe src="evil.com">, since only 'self' and the two CDNs
+        # this app actually uses are allowed as SOURCES of script files.
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: https:; "
+            "font-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'self'; "
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'"
+        )
+
+        # Only send HSTS over an actual HTTPS request (now correctly
+        # detected thanks to ProxyFix above) — sending it over plain HTTP
+        # (e.g. local development) has no effect and is simply noise.
+        if request.is_secure:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+        response.headers["Permissions-Policy"] = (
+            "geolocation=(), microphone=(), camera=(), payment=()"
+        )
         return response
+
+    @app.route("/robots.txt")
+    def robots_txt():
+        # Every /app-admin/* and /saas/* auth page already sends
+        # <meta name="robots" content="noindex, nofollow">, but a proper
+        # robots.txt is both a completeness item from the audit and a
+        # small "this is a real, maintained site" legitimacy signal.
+        return Response(
+            "User-agent: *\nDisallow: /app-admin/\nDisallow: /saas/\n",
+            mimetype="text/plain"
+        )
 
     # ── Context processor: injects into every template ──────────────────────
     @app.context_processor

@@ -31,18 +31,14 @@ from models.saas_auth import saas_fetchone, saas_execute, _is_postgres
 from utils.saas_helpers import (
     validate_mobile, validate_csrf, generate_csrf_token,
     audit_log, check_rate_limit, set_saas_session, get_user_businesses,
-    SAAS_SESSION_KEY, SAAS_PENDING_USER, SAAS_PENDING_EMAIL, SAAS_PENDING_MOBILE
+    SAAS_SESSION_KEY, SAAS_PENDING_USER, SAAS_PENDING_EMAIL, SAAS_PENDING_MOBILE,
+    client_ip,
 )
 
 unified_bp = Blueprint("unified_login", __name__)
 
 P       = lambda: "%s" if _is_postgres() else "?"
 IS_PROD = os.environ.get("APP_ENV", "development").lower() == "production"
-
-
-def _client_ip():
-    fwd = request.headers.get("X-Forwarded-For", "")
-    return fwd.split(",")[0].strip() if fwd else (request.remote_addr or "")
 
 
 def _looks_like_mobile(identifier: str) -> bool:
@@ -129,7 +125,7 @@ def _handle_mobile_pin_login(identifier: str):
         return render_template("unified_login.html",
                                identifier=identifier, mode="mobile_pin")
 
-    rl_key = f"login:{mobile_norm}:{_client_ip()}"
+    rl_key = f"login:{mobile_norm}:{client_ip()}"
     if not check_rate_limit(rl_key, max_requests=10, window_seconds=600):
         audit_log("login_rate_limited", status="failure", detail=f"mobile={mobile_norm}")
         flash("Too many login attempts. Please wait 10 minutes.", "danger")
@@ -202,7 +198,7 @@ def _handle_username_password_login(identifier: str):
     user_id  = identifier
 
     from utils.saas_helpers import check_rate_limit as _crl
-    if not _crl(f"admin_login:{_client_ip()}", max_requests=5, window_seconds=600):
+    if not _crl(f"admin_login:{client_ip()}", max_requests=5, window_seconds=600):
         flash("Too many login attempts. Please wait a few minutes.", "danger")
         return render_template("unified_login.html",
                                identifier=identifier, mode="username_password")

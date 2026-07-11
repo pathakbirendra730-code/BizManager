@@ -264,24 +264,95 @@ def validate_mobile(mobile: str) -> tuple[bool, str]:
 
 # ═══════════════════════════ RATE LIMITING ═══════════════════════════════════
 
-_rate_limit_store: dict = {}  # in-process store; replace with Redis in prod
+# ═══════════════════════════ RATE LIMITING ═══════════════════════════════════
+#
+# Backed by the saas_rate_limits table (see models/saas_auth.py) rather than
+# an in-process dict. The dict version was NOT shared across Gunicorn's
+# multiple worker processes (workers=2 in gunicorn.conf.py) — an attacker's
+# requests landing on different workers each got an independent counter,
+# meaningfully weakening the real-world protection this function exists to
+# provide. The database is the one thing actually shared across every
+# worker, so it's the correct backing store here.
+#
+# This uses a fixed-window counter (reset the count when the window has
+# elapsed) rather than a sliding log of every timestamp — simpler, and one
+# row per key regardless of request volume. Under very high concurrency two
+# requests for the same key in the same instant could each read the count
+# before either writes it back, occasionally allowing one extra request
+# through — an acceptable trade-off for a rate limiter (this is still a
+# massive improvement over the previous per-worker-independent behavior,
+# and rate limiting has never needed to be perfectly atomic to be useful).
 
 def check_rate_limit(key: str, max_requests: int = 5,
                      window_seconds: int = 300) -> bool:
     """
-    Simple in-memory rate limiter. For production use Redis.
-    Returns True if request is allowed, False if rate-limited.
+    Database-backed rate limiter, shared correctly across all Gunicorn
+    worker processes. Returns True if the request is allowed, False if
+    rate-limited.
     """
-    now = datetime.utcnow().timestamp()
-    window_start = now - window_seconds
-    history = _rate_limit_store.get(key, [])
-    history = [ts for ts in history if ts > window_start]
-    if len(history) >= max_requests:
-        _rate_limit_store[key] = history
-        return False
-    history.append(now)
-    _rate_limit_store[key] = history
-    return True
+    from models.saas_auth import saas_fetchone, saas_execute, _is_postgres
+    import random
+
+    p = "%s" if _is_postgres() else "?"
+    now = datetime.utcnow()
+    cutoff = now - timedelta(seconds=window_seconds)
+
+    row = saas_fetchone(f"SELECT * FROM saas_rate_limits WHERE rl_key={p}", (key,))
+
+    if row is None:
+        saas_execute(
+            f"INSERT INTO saas_rate_limits (rl_key, count, window_start) VALUES ({p},{p},{p})",
+            (key, 1, now.isoformat()),
+            returning=None
+        )
+        allowed = True
+    else:
+        window_start = row["window_start"]
+        if isinstance(window_start, str):
+            window_start = datetime.fromisoformat(window_start)
+        if window_start < cutoff:
+            # window has elapsed — start a fresh one
+            saas_execute(
+                f"UPDATE saas_rate_limits SET count=1, window_start={p} WHERE rl_key={p}",
+                (now.isoformat(), key)
+            )
+            allowed = True
+        elif row["count"] >= max_requests:
+            allowed = False
+        else:
+            saas_execute(
+                f"UPDATE saas_rate_limits SET count=count+1 WHERE rl_key={p}",
+                (key,)
+            )
+            allowed = True
+
+    # Opportunistic cleanup of long-stale rows (anything untouched for a
+    # full day) — cheap, no cron/scheduler needed, and keeps this table
+    # from growing unbounded under sustained traffic. 1-in-200 calls is
+    # frequent enough in practice without adding meaningful overhead to
+    # every single rate-limit check.
+    if random.random() < 0.005:
+        stale_cutoff = (now - timedelta(days=1)).isoformat()
+        saas_execute(f"DELETE FROM saas_rate_limits WHERE window_start < {p}", (stale_cutoff,))
+
+    return allowed
+
+
+def client_ip() -> str:
+    """
+    Best-effort real client IP behind Render's reverse proxy.
+
+    Note: app.py wraps the WSGI app in ProxyFix (trusting exactly one
+    proxy hop, matching Render's architecture), which already corrects
+    request.remote_addr — this manual X-Forwarded-For read predates that
+    fix and is kept as a fallback for any request path that reaches this
+    function outside of that middleware (e.g. tests). Was previously
+    copy-pasted identically into app_admin/routes.py, saas_auth/routes.py,
+    and unified_login.py; consolidated here as the one place this logic
+    lives, per the Update_015 code-quality audit.
+    """
+    fwd = request.headers.get("X-Forwarded-For", "")
+    return fwd.split(",")[0].strip() if fwd else (request.remote_addr or "")
 
 
 def get_avatar_initials(full_name: str) -> str:
