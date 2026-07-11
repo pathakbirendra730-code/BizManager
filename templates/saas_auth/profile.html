@@ -7,14 +7,14 @@
   <!-- Header -->
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:28px;">
     <div>
-      <h1 style="margin:0; font-size:22px; font-weight:700; color:#111827;">My Profile</h1>
-      <p style="margin:4px 0 0; color:#6b7280; font-size:14px;">
+      <h1 style="margin:0; font-size:22px; font-weight:700; color:var(--text);">My Profile</h1>
+      <p style="margin:4px 0 0; color:var(--text-muted); font-size:14px;">
         Manage your account and business memberships
       </p>
     </div>
     <a href="{{ url_for('saas_auth.logout') }}"
        style="padding:8px 16px; border:1.5px solid #e5e7eb; border-radius:10px;
-              color:#374151; text-decoration:none; font-size:14px; font-weight:600;">
+              color:var(--text); text-decoration:none; font-size:14px; font-weight:600;">
       Sign Out
     </a>
   </div>
@@ -30,17 +30,17 @@
   {% endwith %}
 
   <!-- Profile card -->
-  <div class="profile-card">
+  <div class="card" style="padding:20px;">
     <div style="display:flex; align-items:flex-start; gap:20px; flex-wrap:wrap;">
       <div class="profile-avatar">{{ user.avatar_initials or '?' }}</div>
       <div style="flex:1; min-width:200px;">
-        <h2 style="margin:0 0 4px; font-size:20px; font-weight:700; color:#111827;">
+        <h2 style="margin:0 0 4px; font-size:20px; font-weight:700; color:var(--text);">
           {{ user.full_name }}
         </h2>
-        <p style="margin:0 0 4px; color:#6b7280; font-size:14px;">
+        <p style="margin:0 0 4px; color:var(--text-muted); font-size:14px;">
           📱 {{ user.mobile }}
         </p>
-        <p style="margin:0; color:#6b7280; font-size:14px;">
+        <p style="margin:0; color:var(--text-muted); font-size:14px;">
           📧 {{ user.email }}
         </p>
         <div style="margin-top:10px;">
@@ -60,14 +60,14 @@
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
         <div>
           <label style="display:block; font-size:13px; font-weight:600;
-                        color:#374151; margin-bottom:6px;">Full Name</label>
+                        color:var(--text); margin-bottom:6px;">Full Name</label>
           <input type="text" name="full_name"
                  value="{{ user.full_name }}"
                  class="form-control" required>
         </div>
         <div>
           <label style="display:block; font-size:13px; font-weight:600;
-                        color:#374151; margin-bottom:6px;">Timezone</label>
+                        color:var(--text); margin-bottom:6px;">Timezone</label>
           <select name="timezone" class="form-control">
             {% set tzs = [
               ('Asia/Kolkata','India (IST)'), ('Asia/Dubai','Dubai (GST)'),
@@ -91,11 +91,11 @@
   </div>
 
   <!-- Contact details (email/mobile) — changed separately, with OTP verification -->
-  <div class="profile-card">
-    <h3 style="margin:0 0 16px; font-size:16px; font-weight:700; color:#111827;">
+  <div class="card" style="padding:20px;">
+    <h3 style="margin:0 0 16px; font-size:16px; font-weight:700; color:var(--text);">
       🔐 Contact Details
     </h3>
-    <p style="margin:0 0 16px; font-size:13px; color:#6b7280;">
+    <p style="margin:0 0 16px; font-size:13px; color:var(--text-muted);">
       Changing your mobile number or email requires verifying the new one
       with an OTP, so nobody else can take over your account by mistake.
     </p>
@@ -104,7 +104,7 @@
       <form method="POST" action="{{ url_for('saas_auth.request_change_email') }}" novalidate>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label style="display:block; font-size:13px; font-weight:600;
-                      color:#374151; margin-bottom:6px;">Email Address</label>
+                      color:var(--text); margin-bottom:6px;">Email Address</label>
         <div style="display:flex; gap:8px;">
           <input type="email" name="new_email" value="{{ user.email }}"
                  class="form-control" required>
@@ -113,7 +113,7 @@
           </button>
         </div>
         <label style="display:block; font-size:12px; font-weight:600;
-                      color:#6b7280; margin:8px 0 4px;">Confirm your PIN</label>
+                      color:var(--text-muted); margin:8px 0 4px;">Confirm your PIN</label>
         <input type="password" name="current_pin" class="form-control"
                inputmode="numeric" maxlength="6" placeholder="6-digit PIN" required>
       </form>
@@ -121,7 +121,7 @@
       <form method="POST" action="{{ url_for('saas_auth.request_change_mobile') }}" novalidate>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label style="display:block; font-size:13px; font-weight:600;
-                      color:#374151; margin-bottom:6px;">Mobile Number</label>
+                      color:var(--text); margin-bottom:6px;">Mobile Number</label>
         <div style="display:flex; gap:8px;">
           <input type="tel" name="new_mobile" value="{{ user.mobile }}"
                  class="form-control" maxlength="13" required>
@@ -130,7 +130,7 @@
           </button>
         </div>
         <label style="display:block; font-size:12px; font-weight:600;
-                      color:#6b7280; margin:8px 0 4px;">Confirm your PIN</label>
+                      color:var(--text-muted); margin:8px 0 4px;">Confirm your PIN</label>
         <input type="password" name="current_pin" class="form-control"
                inputmode="numeric" maxlength="6" placeholder="6-digit PIN" required>
       </form>
@@ -138,8 +138,8 @@
   </div>
 
   <!-- Businesses -->
-  <div class="profile-card">
-    <h3 style="margin:0 0 16px; font-size:16px; font-weight:700; color:#111827;">
+  <div class="card" style="padding:20px;">
+    <h3 style="margin:0 0 16px; font-size:16px; font-weight:700; color:var(--text);">
       🏢 Your Businesses
     </h3>
     {% if businesses %}
@@ -154,7 +154,7 @@
           {{ biz.name[:2].upper() }}
         </div>
         <div style="flex:1; min-width:0;">
-          <div style="font-weight:700; color:#111827; font-size:15px;">
+          <div style="font-weight:700; color:var(--text); font-size:15px;">
             {{ biz.name }}
             {% if biz.id == saas_business_id %}
             <span style="font-size:10px; font-weight:600; padding:2px 8px;
@@ -163,7 +163,7 @@
             </span>
             {% endif %}
           </div>
-          <div style="font-size:12px; color:#6b7280;">
+          <div style="font-size:12px; color:var(--text-muted);">
             {{ biz.business_type | title }} ·
             <span style="text-transform:capitalize;">{{ biz.role }}</span> ·
             {{ biz.plan | title }} Plan
@@ -179,7 +179,7 @@
       </div>
       {% endfor %}
     {% else %}
-      <p style="color:#9ca3af; font-size:14px;">No businesses yet.</p>
+      <p style="color:var(--text-muted); font-size:14px;">No businesses yet.</p>
     {% endif %}
     <a href="{{ url_for('saas_auth.business_setup') }}"
        style="display:inline-block; margin-top:4px; font-size:14px;
@@ -189,14 +189,14 @@
   </div>
 
   <!-- Audit log -->
-  <div class="profile-card">
-    <h3 style="margin:0 0 16px; font-size:16px; font-weight:700; color:#111827;">
+  <div class="card" style="padding:20px;">
+    <h3 style="margin:0 0 16px; font-size:16px; font-weight:700; color:var(--text);">
       🔐 Recent Activity
     </h3>
     {% if audit_logs %}
     <table style="width:100%; border-collapse:collapse; font-size:13px;">
       <thead>
-        <tr style="border-bottom:1px solid #f3f4f6; color:#9ca3af; font-size:12px; text-transform:uppercase;">
+        <tr style="border-bottom:1px solid var(--border); color:var(--text-muted); font-size:12px; text-transform:uppercase;">
           <th style="text-align:left; padding:6px 0; font-weight:600;">Action</th>
           <th style="text-align:left; padding:6px 0; font-weight:600;">Status</th>
           <th style="text-align:left; padding:6px 0; font-weight:600;">IP</th>
@@ -206,7 +206,7 @@
       <tbody>
         {% for log in audit_logs %}
         <tr style="border-bottom:1px solid #f9fafb;">
-          <td style="padding:8px 0; color:#374151;">
+          <td style="padding:8px 0; color:var(--text);">
             {{ log.action | replace('_', ' ') | title }}
           </td>
           <td style="padding:8px 0;">
@@ -217,10 +217,10 @@
               {{ log.status }}
             </span>
           </td>
-          <td style="padding:8px 0; color:#9ca3af; font-family:monospace; font-size:11px;">
+          <td style="padding:8px 0; color:var(--text-muted); font-family:monospace; font-size:11px;">
             {{ log.ip_address or '—' }}
           </td>
-          <td style="padding:8px 0; color:#9ca3af; text-align:right;">
+          <td style="padding:8px 0; color:var(--text-muted); text-align:right;">
             {{ (log.created_at | dtfmt(16) | replace('T',' ')) if log.created_at else '—' }}
           </td>
         </tr>
@@ -228,7 +228,7 @@
       </tbody>
     </table>
     {% else %}
-      <p style="color:#9ca3af; font-size:14px;">No activity recorded yet.</p>
+      <p style="color:var(--text-muted); font-size:14px;">No activity recorded yet.</p>
     {% endif %}
   </div>
 

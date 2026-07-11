@@ -23,6 +23,7 @@ from models.saas_auth import saas_fetchone, saas_fetchall, saas_execute, _is_pos
 from utils.saas_helpers import saas_business_required, validate_csrf, audit_log
 from utils.saas_middleware import permission_required, get_tenant_id, assert_tenant_access
 from utils.tax_helpers import calculate_gst, determine_supply_type
+from utils.money import to_decimal
 
 saas_billing_bp = Blueprint("saas_billing", __name__, url_prefix="/biz/billing")
 
