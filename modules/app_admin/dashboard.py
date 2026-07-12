@@ -283,17 +283,17 @@ def delete_user(user_id):
 @app_admin_bp.route("/businesses")
 @app_admin_required
 def all_businesses():
-    p = P()
+    # Single aggregate query instead of the previous N+1 pattern (one
+    # extra COUNT(*) query per business, in a loop) — this now stays
+    # equally fast whether the platform has 10 businesses or 10,000.
     businesses = saas_fetchall(
-        "SELECT * FROM saas_businesses ORDER BY created_at DESC"
+        """SELECT b.*,
+                  COUNT(CASE WHEN ur.is_active=TRUE THEN 1 END) as member_count
+           FROM saas_businesses b
+           LEFT JOIN saas_user_roles ur ON ur.business_id = b.id
+           GROUP BY b.id
+           ORDER BY b.created_at DESC"""
     )
-    for b in businesses:
-        member_count = saas_fetchone(
-            f"SELECT COUNT(*) as c FROM saas_user_roles WHERE business_id={p} AND is_active=TRUE",
-            (b["id"],)
-        )["c"]
-        b["member_count"] = member_count
-
     return render_template("app_admin/all_businesses.html", businesses=businesses)
 
 

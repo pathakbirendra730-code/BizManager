@@ -878,18 +878,29 @@ def login_otp():
             return render_template("saas_auth/login_otp.html", mobile=mobile)
 
         otp = generate_otp()
+
+        if channel == "email":
+            store_otp(user["email"], otp, "login_otp_email")
+            sent = send_email_otp(user["email"], otp, "login_otp_email")
+        else:
+            store_otp(mobile_norm, otp, "login_otp_mobile")
+            sent = send_sms_otp(mobile_norm, otp, "login_otp_mobile")
+
+        if not sent:
+            audit_log("login_otp_send_failed", status="failure", user_id=user["id"],
+                      detail=f"channel={channel} mobile={mobile_norm}")
+            flash(f"Could not send the OTP via {('email' if channel == 'email' else 'SMS')}. "
+                  f"Please try the other option or contact support.", "danger")
+            return render_template("saas_auth/login_otp.html", mobile=mobile)
+
         session[SAAS_PENDING_USER]   = user["id"]
         session[SAAS_PENDING_MOBILE] = mobile_norm
         session[SAAS_PENDING_EMAIL]  = user["email"]
         session["login_otp_channel"] = channel
 
         if channel == "email":
-            store_otp(user["email"], otp, "login_otp_email")
-            send_email_otp(user["email"], otp, "login_otp_email")
             flash(f"OTP sent to {user['email']}", "info")
         else:
-            store_otp(mobile_norm, otp, "login_otp_mobile")
-            send_sms_otp(mobile_norm, otp, "login_otp_mobile")
             flash(f"OTP sent to {mobile_norm[-4:].rjust(10, '*')}", "info")
 
         audit_log("login_otp_requested", user_id=user["id"], detail=f"channel={channel}")

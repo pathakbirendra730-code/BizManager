@@ -222,19 +222,35 @@ def login():
             return render_template("app_admin/login.html", user_id=user_id)
 
         # ── First factor passed — now require OTP ───────────────────────────
-        session[ADMIN_PENDING_KEY] = admin["id"]
-
         # Dev: email only (no SMS cost while testing). Prod: both channels
         # if a mobile is on file. This policy decision belongs here, in the
         # route, not in OTPManager — the manager itself stays channel-agnostic.
         channel = "both" if (IS_PROD and admin.get("mobile")) else "email"
-        _, _, dev_otp = otp_manager.generate_and_send(
+        otp_ok, otp_message, dev_otp = otp_manager.generate_and_send(
             f"admin:{admin['id']}", "admin_login", channel,
             email=admin.get("email"), mobile=admin.get("mobile")
         )
 
         audit_log("app_admin_password_ok", status="success",
                   detail=f"user_id={user_id}")
+
+        if not otp_ok:
+            # OTPManager already audit-logs the specific internal reason
+            # (rate-limited / store failed / no delivery channel worked) —
+            # this adds an admin-login-specific entry so an incident
+            # review of "why couldn't this admin log in" doesn't have to
+            # cross-reference the generic otp_generated log by timestamp.
+            audit_log("app_admin_otp_send_failed", status="failure",
+                      detail=f"user_id={user_id} admin_id={admin['id']} "
+                             f"channel={channel} reason={otp_message}")
+            # Don't leave a pending-OTP session hanging for a login that
+            # never actually reached step 2 — same as if password had
+            # been wrong, the person needs to start over from step 1.
+            session.pop(ADMIN_PENDING_KEY, None)
+            flash(otp_message, "danger")
+            return render_template("app_admin/login.html", user_id=user_id)
+
+        session[ADMIN_PENDING_KEY] = admin["id"]
 
         if not IS_PROD:
             # Development convenience: show OTP directly on screen too
