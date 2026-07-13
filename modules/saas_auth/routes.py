@@ -216,18 +216,42 @@ def signup():
         # ── Create or update pending user ──────────────────────────────────
         initials = get_avatar_initials(full_name)
 
-        if existing_email:
-            user_id = existing_email["id"]
-            saas_execute(
-                f"UPDATE saas_users SET full_name={p}, mobile={p}, avatar_initials={p} WHERE id={p}",
-                (full_name, mobile, initials, user_id)
-            )
-        else:
-            user_id = saas_execute(
-                f"""INSERT INTO saas_users (mobile, email, full_name, avatar_initials, is_verified)
-                    VALUES ({p},{p},{p},{p},FALSE)""",
-                (mobile, email, full_name, initials)
-            )
+        # Reuse whichever existing (unverified) row matches — by email OR
+        # by mobile. The previous version of this code only checked
+        # existing_email here, so a retry that matched on mobile but not
+        # email (or a near-simultaneous double submission — see the
+        # try/except below) could still attempt a duplicate INSERT.
+        existing = existing_email or existing_mobile
+
+        try:
+            if existing:
+                user_id = existing["id"]
+                saas_execute(
+                    f"UPDATE saas_users SET full_name={p}, mobile={p}, email={p}, avatar_initials={p} WHERE id={p}",
+                    (full_name, mobile, email, initials, user_id)
+                )
+            else:
+                user_id = saas_execute(
+                    f"""INSERT INTO saas_users (mobile, email, full_name, avatar_initials, is_verified)
+                        VALUES ({p},{p},{p},{p},FALSE)""",
+                    (mobile, email, full_name, initials)
+                )
+        except Exception as e:
+            # Defense in depth against a genuine race: two near-simultaneous
+            # submissions (e.g. an impatient double-click while a slow OTP
+            # send — such as an SMTP timeout — is still in flight) can both
+            # pass the "no existing row" checks above before either commits.
+            # Whichever one loses that race must never surface as a raw,
+            # unhandled 500 with a stack trace — that's exactly what was
+            # observed in production logs (psycopg2.errors.UniqueViolation
+            # on saas_users_mobile_key, unhandled, crashing the request).
+            audit_log("signup_insert_race", status="failure",
+                      detail=f"mobile={mobile} email={email} error={e}")
+            flash("It looks like this account may already be in progress. "
+                  "Please try logging in, or wait a moment and try signing up again.",
+                  "warning")
+            return render_template("saas_auth/signup.html",
+                                   full_name=full_name, mobile=mobile, email=email)
 
         # ── Send email OTP ─────────────────────────────────────────────────
         otp = generate_otp()
