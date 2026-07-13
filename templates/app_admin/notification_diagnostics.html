@@ -1,0 +1,148 @@
+{% extends "app_admin/base_admin.html" %}
+{% block title %}Notification Diagnostics | App Admin{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+  <h1 style="font-size:22px; color:#fff; margin:0;">📡 Notification Diagnostics</h1>
+  <a href="{{ url_for('app_admin.platform_settings') }}"
+     style="font-size:13px; color:#9ca3af; text-decoration:none;">
+    Provider Settings →
+  </a>
+</div>
+
+<div class="card" style="margin-bottom:16px; {{ 'border-color:#059669;' if is_prod else 'border-color:#d97706;' }}">
+  <p style="margin:0; font-size:13px;">
+    Environment: <strong>{{ 'PRODUCTION' if is_prod else 'Development' }}</strong>
+    {% if not is_prod %}
+      — OTPs also print to the server console here; that never happens in production.
+    {% else %}
+      — OTPs are never shown on-screen or logged in this mode.
+    {% endif %}
+  </p>
+</div>
+
+{% if test_result %}
+<div class="card" style="margin-bottom:16px; {{ 'border-color:#059669;' if test_result.ok else 'border-color:#dc2626;' }}">
+  <p style="margin:0; font-size:13px;">
+    {% if test_result.ok %}✅{% else %}❌{% endif %}
+    Test {{ test_result.channel|upper }} to <strong>{{ test_result.target }}</strong>:
+    {{ 'sent successfully' if test_result.ok else 'failed — see Recent Activity below for the reason' }}.
+  </p>
+</div>
+{% endif %}
+
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+  <!-- Email -->
+  <div class="card">
+    <h2 style="margin-top:0;">📧 Email Provider</h2>
+    <table class="info-table" style="width:100%;">
+      <tr><td>Active</td><td><strong>{{ email_status.name if email_status else '—' }}</strong></td></tr>
+      <tr>
+        <td>Configured</td>
+        <td>
+          {% if email_status is none %}<span class="pill pill-inactive">Not set</span>
+          {% elif email_status.configured %}<span class="pill pill-active">✓ Ready</span>
+          {% else %}<span class="pill pill-pending">✗ Missing credentials</span>{% endif %}
+        </td>
+      </tr>
+      {% if email_fallback_status %}
+      <tr><td>Fallback</td><td>{{ email_fallback_status.name }}
+        {% if email_fallback_status.configured %}<span class="pill pill-active">✓</span>
+        {% else %}<span class="pill pill-pending">✗</span>{% endif %}
+      </td></tr>
+      {% endif %}
+    </table>
+
+    <form method="POST" style="margin-top:14px;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="test_email">
+      <input type="email" name="test_email" class="form-control"
+             placeholder="Send test to…" value="{{ admin.email if admin else '' }}"
+             style="margin-bottom:8px;">
+      <button type="submit" class="btn btn-primary" style="width:100%;">Send Test Email</button>
+    </form>
+  </div>
+
+  <!-- SMS -->
+  <div class="card">
+    <h2 style="margin-top:0;">📱 SMS Provider</h2>
+    <table class="info-table" style="width:100%;">
+      <tr><td>Active</td><td><strong>{{ sms_status.name if sms_status else '—' }}</strong></td></tr>
+      <tr>
+        <td>Configured</td>
+        <td>
+          {% if sms_status is none %}<span class="pill pill-inactive">Not set</span>
+          {% elif sms_status.configured %}<span class="pill pill-active">✓ Ready</span>
+          {% else %}<span class="pill pill-pending">✗ Missing credentials</span>{% endif %}
+        </td>
+      </tr>
+      {% if sms_fallback_status %}
+      <tr><td>Fallback</td><td>{{ sms_fallback_status.name }}
+        {% if sms_fallback_status.configured %}<span class="pill pill-active">✓</span>
+        {% else %}<span class="pill pill-pending">✗</span>{% endif %}
+      </td></tr>
+      {% endif %}
+    </table>
+
+    <form method="POST" style="margin-top:14px;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="test_sms">
+      <input type="tel" name="test_mobile" class="form-control"
+             placeholder="Send test to…" value="{{ admin.mobile if admin else '' }}"
+             style="margin-bottom:8px;">
+      <button type="submit" class="btn btn-primary" style="width:100%;">Send Test SMS</button>
+    </form>
+  </div>
+</div>
+
+<div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:16px;">
+  <div class="card">
+    <h3 style="margin-top:0; font-size:13px; color:#9ca3af;">LAST EMAIL SENT</h3>
+    {% if last_email %}
+    <p style="margin:0; font-size:13px;">{{ last_email.recipient_masked }}<br>
+      <span style="color:#9ca3af;">{{ last_email.purpose }} · {{ last_email.provider }} · {{ last_email.created_at }}</span></p>
+    {% else %}<p style="margin:0; color:#9ca3af; font-size:13px;">No successful sends yet.</p>{% endif %}
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0; font-size:13px; color:#9ca3af;">LAST SMS SENT</h3>
+    {% if last_sms %}
+    <p style="margin:0; font-size:13px;">{{ last_sms.recipient_masked }}<br>
+      <span style="color:#9ca3af;">{{ last_sms.purpose }} · {{ last_sms.provider }} · {{ last_sms.created_at }}</span></p>
+    {% else %}<p style="margin:0; color:#9ca3af; font-size:13px;">No successful sends yet.</p>{% endif %}
+  </div>
+  <div class="card" style="{{ 'border-color:#dc2626;' if last_failure else '' }}">
+    <h3 style="margin-top:0; font-size:13px; color:#9ca3af;">LAST FAILURE</h3>
+    {% if last_failure %}
+    <p style="margin:0; font-size:13px;">{{ last_failure.channel|upper }} via {{ last_failure.provider }}<br>
+      <span style="color:#f87171;">{{ last_failure.error or last_failure.status }}</span><br>
+      <span style="color:#9ca3af;">{{ last_failure.created_at }}</span></p>
+    {% else %}<p style="margin:0; color:#9ca3af; font-size:13px;">No failures recorded.</p>{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0;">Recent Activity (last 20)</h2>
+  <table>
+    <thead><tr><th>Time</th><th>Channel</th><th>Provider</th><th>Recipient</th><th>Purpose</th><th>Status</th><th>Attempts</th></tr></thead>
+    <tbody>
+      {% for l in logs %}
+      <tr>
+        <td style="color:#9ca3af; font-size:12px;">{{ l.created_at }}</td>
+        <td>{{ l.channel }}</td>
+        <td>{{ l.provider }}</td>
+        <td>{{ l.recipient_masked }}</td>
+        <td>{{ l.purpose }}</td>
+        <td>
+          {% if l.status == 'sent' %}<span class="pill pill-active">sent</span>
+          {% elif l.status == 'not_configured' %}<span class="pill pill-pending">not configured</span>
+          {% else %}<span class="pill pill-inactive">{{ l.status }}</span>{% endif %}
+        </td>
+        <td>{{ l.attempts }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty-state">No notification activity recorded yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -21,6 +21,107 @@ from utils.saas_helpers import audit_log, validate_csrf, validate_mobile
 P = lambda: "%s" if _is_postgres() else "?"
 
 
+@app_admin_bp.route("/notifications/diagnostics", methods=["GET", "POST"])
+@super_admin_required
+def notification_diagnostics():
+    """
+    Notification Diagnostics — Update_020.
+
+    Shows the currently-selected email/SMS provider (and fallback, if
+    any), whether each is actually configured, recent send history from
+    notification_log, and lets a super admin send a real test email/SMS
+    to confirm delivery end-to-end. Never displays a secret/API-key
+    value — only whether one is present (via each provider's own
+    is_configured() check, which is exactly what NotificationManager
+    itself uses to decide whether to attempt a send).
+    """
+    import os
+    from notification.providers import get_provider, get_sms_provider
+    from notification.exceptions import NotificationError
+    from notification.log import recent_logs
+    from utils.platform_settings import get_setting
+
+    admin_id = session.get("admin_id")
+    admin = saas_fetchone(f"SELECT * FROM app_admins WHERE id={P()}", (admin_id,))
+    test_result = None
+
+    if request.method == "POST":
+        if not validate_csrf(request.form.get("csrf_token")):
+            flash("Security error. Please try again.", "danger")
+            return redirect(url_for("app_admin.notification_diagnostics"))
+
+        action = request.form.get("action")
+
+        if action == "test_email":
+            target = request.form.get("test_email", "").strip() or (admin or {}).get("email", "")
+            if not target or "@" not in target:
+                flash("Enter a valid email address to send the test to.", "danger")
+            else:
+                from notification.email_service import send_notice_email
+                ok = send_notice_email(
+                    target, "BizManager — Notification Test",
+                    "<p>This is a test message from App Admin → Notification "
+                    "Diagnostics. If you received this, your currently-configured "
+                    "email provider is working correctly.</p>",
+                    kind="alert"
+                )
+                test_result = {"channel": "email", "target": target, "ok": ok}
+                audit_log("notification_test_sent",
+                          detail=f"channel=email target={target} ok={ok} by_admin={session.get('admin_userid')}")
+
+        elif action == "test_sms":
+            target = request.form.get("test_mobile", "").strip() or (admin or {}).get("mobile", "")
+            ok_mobile, mobile_norm = validate_mobile(target) if target else (False, "")
+            if not ok_mobile:
+                flash(mobile_norm or "Enter a valid mobile number to send the test to.", "danger")
+            else:
+                from notification.sms_service import send_notice_sms
+                ok = send_notice_sms(
+                    mobile_norm,
+                    "BizManager: this is a test SMS from Notification Diagnostics.",
+                    purpose="diagnostic_test"
+                )
+                test_result = {"channel": "sms", "target": mobile_norm, "ok": ok}
+                audit_log("notification_test_sent",
+                          detail=f"channel=sms target={mobile_norm} ok={ok} by_admin={session.get('admin_userid')}")
+
+    # ── Current provider configuration + live status ────────────────────────
+    def _provider_status(get_fn, name):
+        if not name or name == "none":
+            return None
+        try:
+            provider = get_fn(name)
+            return {"name": name, "configured": provider.is_configured(), "error": None}
+        except NotificationError as e:
+            return {"name": name, "configured": False, "error": str(e)}
+
+    email_name          = get_setting("email_provider") or "smtp"
+    email_fallback_name = get_setting("fallback_email_provider") or "none"
+    sms_name            = get_setting("sms_provider") or "fast2sms"
+    sms_fallback_name   = get_setting("fallback_sms_provider") or "none"
+
+    email_status          = _provider_status(get_provider, email_name)
+    email_fallback_status = _provider_status(get_provider, email_fallback_name)
+    sms_status            = _provider_status(get_sms_provider, sms_name)
+    sms_fallback_status   = _provider_status(get_sms_provider, sms_fallback_name)
+
+    # ── Recent history from notification_log ────────────────────────────────
+    logs = recent_logs(50)
+    last_email   = next((l for l in logs if l["channel"] == "email" and l["status"] == "sent"), None)
+    last_sms     = next((l for l in logs if l["channel"] == "sms" and l["status"] == "sent"), None)
+    last_failure = next((l for l in logs if l["status"] in ("failed", "not_configured")), None)
+
+    is_prod = os.environ.get("APP_ENV", "development").lower() == "production"
+
+    return render_template(
+        "app_admin/notification_diagnostics.html",
+        admin=admin, is_prod=is_prod, test_result=test_result,
+        email_status=email_status, email_fallback_status=email_fallback_status,
+        sms_status=sms_status, sms_fallback_status=sms_fallback_status,
+        logs=logs[:20], last_email=last_email, last_sms=last_sms, last_failure=last_failure,
+    )
+
+
 @app_admin_bp.route("/dashboard")
 @app_admin_required
 def dashboard():

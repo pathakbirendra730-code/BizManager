@@ -71,7 +71,13 @@ class SESProvider(EmailProvider):
             body["Text"] = {"Data": plain_body, "Charset": "utf-8"}
 
         try:
-            client_kwargs = {"region_name": self._region()}
+            from botocore.config import Config as BotoConfig
+            # Explicit 15s timeouts, matching every other provider in this
+            # package. boto3's own default (60s connect + 60s read) is far
+            # longer than what the rest of NotificationManager's bounded
+            # retry logic assumes for a single attempt.
+            boto_config = BotoConfig(connect_timeout=15, read_timeout=15)
+            client_kwargs = {"region_name": self._region(), "config": boto_config}
             if access_key and secret_key:
                 client_kwargs["aws_access_key_id"] = access_key
                 client_kwargs["aws_secret_access_key"] = secret_key

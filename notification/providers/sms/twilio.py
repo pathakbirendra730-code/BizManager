@@ -45,7 +45,22 @@ class TwilioSMSProvider(SMSProvider):
             ) from e
 
         try:
-            client = Client(self._sid(), self._token())
+            from twilio.http.http_client import TwilioHttpClient
+        except ImportError:
+            TwilioHttpClient = None
+
+        try:
+            # Explicit 15s timeout, matching every other provider in this
+            # package (SMTP/Gmail/Fast2SMS/MSG91/SMS-Brevo/SendGrid all use
+            # timeout=15) — Twilio's SDK has no bounded default timeout on
+            # its own, which would otherwise let a hung request block this
+            # worker thread indefinitely, defeating the whole point of
+            # NotificationManager's bounded retry/failover logic.
+            if TwilioHttpClient is not None:
+                http_client = TwilioHttpClient(timeout=15)
+                client = Client(self._sid(), self._token(), http_client=http_client)
+            else:
+                client = Client(self._sid(), self._token())
             msg = client.messages.create(
                 body=message, from_=self._from(), to=to_mobile
             )

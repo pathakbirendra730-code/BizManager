@@ -187,6 +187,8 @@
        class="{% if request.endpoint in ['app_admin.list_admins','app_admin.create_admin'] %}active{% endif %}">Admins</a>
     <a href="{{ url_for('app_admin.platform_settings') }}"
        class="{% if request.endpoint=='app_admin.platform_settings' %}active{% endif %}">Settings</a>
+    <a href="{{ url_for('app_admin.notification_diagnostics') }}"
+       class="{% if request.endpoint=='app_admin.notification_diagnostics' %}active{% endif %}">Notifications</a>
     {% endif %}
   </div>
   <div class="admin-user">
