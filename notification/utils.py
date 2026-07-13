@@ -58,7 +58,7 @@ def default_from_address() -> str:
     return (os.environ.get("MAIL_FROM")
             or os.environ.get("SMTP_FROM")
             or os.environ.get("SMTP_USER")
-            or "noreply@bizmanager.app")
+            or "educare360b@gmail.com")
 
 
 def brand_name() -> str:
