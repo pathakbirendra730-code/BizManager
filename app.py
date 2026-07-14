@@ -123,7 +123,9 @@ def create_app():
     app.register_blueprint(saas_gst_bp)                           # /biz/gst — SaaS-native
     app.register_blueprint(saas_accounts_bp)                      # /biz/accounts — SaaS-native
     app.register_blueprint(saas_dashboard_bp)                     # /biz/dashboard — SaaS-native
-
+    print("\n===== ROUTES =====")
+    for rule in sorted(app.url_map.iter_rules(), key=lambda r: r.rule): print(rule.rule)
+    print("==================\n")
     # ── Root redirect ──────────────────────────────────────────────────────────
     @app.route("/")
     def index():
