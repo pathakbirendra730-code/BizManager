@@ -26,7 +26,7 @@ _token = os.environ.get("BOOTSTRAP_ADMIN_TOKEN", "")
 print(f"[startup] BOOTSTRAP_ADMIN_TOKEN is set: {bool(_token)} "
       f"(length: {len(_token)})")
 
-from flask import Flask, redirect, url_for, session, request, Response
+from flask import Flask, redirect, url_for, session, request, Response, render_template
 from werkzeug.middleware.proxy_fix import ProxyFix
 from config import ActiveConfig
 from models.database import init_db
@@ -123,9 +123,7 @@ def create_app():
     app.register_blueprint(saas_gst_bp)                           # /biz/gst — SaaS-native
     app.register_blueprint(saas_accounts_bp)                      # /biz/accounts — SaaS-native
     app.register_blueprint(saas_dashboard_bp)                     # /biz/dashboard — SaaS-native
-    print("\n===== ROUTES =====")
-    for rule in sorted(app.url_map.iter_rules(), key=lambda r: r.rule): print(rule.rule)
-    print("==================\n")
+
     # ── Root redirect ──────────────────────────────────────────────────────────
     @app.route("/")
     def index():
@@ -212,6 +210,17 @@ def create_app():
             "User-agent: *\nDisallow: /app-admin/\nDisallow: /saas/\n",
             mimetype="text/plain"
         )
+
+    # ── Global 404 handler (Update_021) ──────────────────────────────────────
+    # Every 404 in the app — a genuinely missing route, a bad link, or the
+    # App Admin bootstrap route's intentional 404-on-failure (see
+    # modules/app_admin/routes.py) — now renders the same branded page
+    # instead of Flask's default "Not Found" text response. This is purely
+    # presentational: it does not change which requests return 404, only
+    # what the response body looks like.
+    @app.errorhandler(404)
+    def handle_404(e):
+        return render_template("errors/404.html"), 404
 
     # ── Context processor: injects into every template ──────────────────────
     @app.context_processor

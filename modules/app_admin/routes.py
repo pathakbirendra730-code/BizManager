@@ -110,9 +110,14 @@ def admin_globals():
 #      very first admin created (via this route OR the CLI script)
 #      permanently closes this door. There is no way to use this route to
 #      create a SECOND admin; that's what /app-admin/admins/create is for.
-#   3. Every failure mode (feature disabled, wrong token, already set up)
-#      returns the identical 404 — an attacker probing this URL can't tell
-#      which case they hit.
+#   3. An invalid/missing token ALWAYS gets the identical generic branded
+#      404 page, regardless of whether an admin already exists — an
+#      attacker probing this URL without the correct token can never tell
+#      the two cases apart. A VALID token arriving after bootstrap was
+#      already completed gets a friendlier "already set up, log in
+#      instead" message (still a 404 status code) — safe specifically
+#      because seeing that message requires already holding the same
+#      secret needed to have completed bootstrap in the first place.
 #
 # Usage: set BOOTSTRAP_ADMIN_TOKEN on Render, then visit
 #   https://your-app.onrender.com/app-admin/bootstrap?token=<that value>
@@ -133,11 +138,26 @@ def _any_admin_exists() -> bool:
 @app_admin_bp.route("/bootstrap", methods=["GET", "POST"])
 def bootstrap():
     token = request.values.get("token", "")
+    token_valid = _bootstrap_token_valid(token)
 
-    # Uniform failure response for all three gate conditions — see docstring above.
-    if not _bootstrap_token_valid(token) or _any_admin_exists():
+    if not token_valid:
+        # Generic branded 404 — identical regardless of whether an admin
+        # already exists. This is the ONLY response anyone without the
+        # correct token can ever receive, so it reveals nothing about
+        # bootstrap's state to an attacker probing this URL.
         from flask import abort
         abort(404)
+
+    if _any_admin_exists():
+        # Token IS correct, but bootstrap was already completed (e.g. by
+        # someone re-visiting a saved link, or a second browser tab from
+        # the original setup). Safe to be specific here — showing this
+        # message requires already having proven the same secret needed
+        # to have completed bootstrap in the first place, so it isn't an
+        # oracle available to anyone who doesn't hold that token. Status
+        # code stays 404 either way, per the security requirement — this
+        # is a friendlier 404 body, not a 200.
+        return render_template("errors/404.html", bootstrap_already_done=True), 404
 
     if request.method == "GET":
         return render_template("app_admin/bootstrap.html", token=token)
@@ -172,8 +192,7 @@ def bootstrap():
 
     # Re-check race condition: two people hitting this at once shouldn't both succeed.
     if not errors and _any_admin_exists():
-        from flask import abort
-        abort(404)
+        return render_template("errors/404.html", bootstrap_already_done=True), 404
 
     if errors:
         for e in errors:

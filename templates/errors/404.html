@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Page Not Found | BizManager</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      padding: 20px;
+    }
+    .wrap { width: 100%; max-width: 460px; text-align: center; }
+    .brand-logo { font-size: 48px; line-height: 1; margin-bottom: 8px; }
+    .brand-name {
+      color: #fff; font-size: 22px; font-weight: 700;
+      margin: 0 0 28px; letter-spacing: -0.5px;
+    }
+    .card {
+      background: rgba(255,255,255,0.98);
+      border-radius: 20px;
+      padding: 40px 36px;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.4);
+    }
+    .code { font-size: 15px; font-weight: 700; color: #7c3aed; letter-spacing: 2px; margin: 0 0 10px; }
+    h1 { font-size: 21px; font-weight: 700; color: #111827; margin: 0 0 14px; }
+    p { font-size: 14px; color: #6b7280; line-height: 1.6; margin: 0 0 26px; }
+    .btn {
+      display: inline-block; background: #4f46e5; color: #fff; text-decoration: none;
+      font-weight: 600; font-size: 14px; padding: 12px 28px; border-radius: 10px;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: #4338ca; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand-logo">🏪</div>
+    <p class="brand-name">BizManager</p>
+    <div class="card">
+      <p class="code">404 — NOT FOUND</p>
+      {% if bootstrap_already_done %}
+        <h1>Setup Already Completed</h1>
+        <p>Initial App Admin setup has already been completed.
+           Please log in using the App Admin Login page.</p>
+        <a href="{{ url_for('app_admin.login') }}" class="btn">Go to App Admin Login</a>
+      {% else %}
+        <h1>Page Not Found</h1>
+        <p>The page you're looking for doesn't exist, may have moved,
+           or the link you followed is incorrect.</p>
+        <a href="{{ url_for('unified_login.login') }}" class="btn">Go to Login</a>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>
