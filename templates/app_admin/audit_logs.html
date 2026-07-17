@@ -1,0 +1,84 @@
+{% extends "app_admin/base_admin.html" %}
+{% block title %}Audit Logs | App Admin{% endblock %}
+
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+  <h1 style="font-size:22px; color:#fff; margin:0;">📜 Audit Logs</h1>
+  <span style="font-size:13px; color:#9ca3af;">{{ total }} total event{{ 's' if total != 1 else '' }}</span>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+  <form method="GET" style="display:grid; grid-template-columns:2fr 1fr 1fr auto; gap:10px; align-items:end;">
+    <div>
+      <label style="display:block; font-size:12px; color:#9ca3af; margin-bottom:4px;">Search (detail / entity / IP)</label>
+      <input type="text" name="q" value="{{ search }}" class="form-control" placeholder="e.g. mobile number, email, IP…">
+    </div>
+    <div>
+      <label style="display:block; font-size:12px; color:#9ca3af; margin-bottom:4px;">Action</label>
+      <select name="action" class="form-control">
+        <option value="">All actions</option>
+        {% for a in actions %}
+        <option value="{{ a }}" {% if a == action_filter %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label style="display:block; font-size:12px; color:#9ca3af; margin-bottom:4px;">Status</label>
+      <select name="status" class="form-control">
+        <option value="">All</option>
+        <option value="success" {% if status_filter == 'success' %}selected{% endif %}>Success</option>
+        <option value="failure" {% if status_filter == 'failure' %}selected{% endif %}>Failure</option>
+        <option value="warning" {% if status_filter == 'warning' %}selected{% endif %}>Warning</option>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Filter</button>
+  </form>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th><th>Action</th><th>User</th><th>Business</th>
+        <th>Entity</th><th>Detail</th><th>IP</th><th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in logs %}
+      <tr>
+        <td style="color:#9ca3af; font-size:12px; white-space:nowrap;">{{ l.created_at }}</td>
+        <td><code>{{ l.action }}</code></td>
+        <td>{{ l.user_name or ('#' ~ l.user_id if l.user_id else '—') }}</td>
+        <td>{{ l.business_name or '—' }}</td>
+        <td style="font-size:12px;">{{ l.entity_type }} {{ l.entity_id }}</td>
+        <td style="font-size:12px; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+            title="{{ l.detail }}">{{ l.detail }}</td>
+        <td style="font-size:12px; color:#9ca3af;">{{ l.ip_address }}</td>
+        <td>
+          {% if l.status == 'success' %}<span class="pill pill-active">success</span>
+          {% elif l.status == 'failure' %}<span class="pill pill-inactive">failure</span>
+          {% else %}<span class="pill pill-pending">{{ l.status }}</span>{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="empty-state">No audit events match this filter.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if total_pages > 1 %}
+  <div style="display:flex; justify-content:center; gap:8px; margin-top:16px;">
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+        <span class="btn btn-sm btn-primary">{{ p }}</span>
+      {% elif p <= 3 or p > total_pages - 3 or (p >= page - 1 and p <= page + 1) %}
+        <a href="{{ url_for('app_admin.audit_logs', page=p, action=action_filter, status=status_filter, q=search) }}"
+           class="btn btn-sm btn-secondary">{{ p }}</a>
+      {% elif p == 4 or p == total_pages - 3 %}
+        <span style="color:#9ca3af; padding:0 4px;">…</span>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

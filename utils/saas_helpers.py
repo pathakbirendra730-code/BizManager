@@ -179,7 +179,7 @@ def audit_log(action: str, user_id: int = None, business_id: int = None,
     """Write an audit record. Never raises — fails silently."""
     try:
         p = "%s" if _is_postgres() else "?"
-        ip = _get_client_ip()
+        ip = client_ip()
         ua = request.headers.get("User-Agent", "")[:500]
 
         uid = user_id or session.get(SAAS_SESSION_KEY)
@@ -197,12 +197,7 @@ def audit_log(action: str, user_id: int = None, business_id: int = None,
         print(f"[Audit] Failed to log: {e}")
 
 
-def _get_client_ip() -> str:
-    """Return real client IP, respecting proxies."""
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.remote_addr or ""
+
 
 
 # ═══════════════════════════ SLUG GENERATION ═════════════════════════════════

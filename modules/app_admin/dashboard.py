@@ -21,6 +21,71 @@ from utils.saas_helpers import audit_log, validate_csrf, validate_mobile
 P = lambda: "%s" if _is_postgres() else "?"
 
 
+@app_admin_bp.route("/audit-logs")
+@super_admin_required
+def audit_logs():
+    """
+    Audit Log viewer — Update_022. audit_log() has 100+ call sites across
+    the codebase writing to saas_audit_logs on every login, admin action,
+    deletion, and security-relevant event, but until now nothing ever
+    displayed any of it — exactly the same "infrastructure exists, no UI"
+    gap Update_020 closed for notification_log. Platform-wide (not scoped
+    to one business), since this is a super-admin-only page.
+    """
+    p = P()
+
+    action_filter = request.args.get("action", "").strip()
+    status_filter = request.args.get("status", "").strip()
+    search        = request.args.get("q", "").strip()
+    page          = max(1, request.args.get("page", 1, type=int))
+    per_page      = 50
+
+    where = ["1=1"]
+    args  = []
+    if action_filter:
+        where.append(f"action={p}")
+        args.append(action_filter)
+    if status_filter:
+        where.append(f"status={p}")
+        args.append(status_filter)
+    if search:
+        where.append(f"(LOWER(detail) LIKE {p} OR LOWER(entity_id) LIKE {p} OR LOWER(ip_address) LIKE {p})")
+        like = f"%{search.lower()}%"
+        args += [like, like, like]
+
+    where_sql = " AND ".join(where)
+
+    total = saas_fetchone(
+        f"SELECT COUNT(*) as c FROM saas_audit_logs WHERE {where_sql}", tuple(args)
+    )["c"]
+
+    logs = saas_fetchall(
+        f"""SELECT al.*, u.full_name as user_name, b.name as business_name
+            FROM saas_audit_logs al
+            LEFT JOIN saas_users u ON u.id = al.user_id
+            LEFT JOIN saas_businesses b ON b.id = al.business_id
+            WHERE {where_sql}
+            ORDER BY al.created_at DESC
+            LIMIT {p} OFFSET {p}""",
+        tuple(args) + (per_page, (page - 1) * per_page)
+    )
+
+    # Distinct action names for the filter dropdown — capped so this stays
+    # cheap even after the table has millions of rows (it's just for the
+    # dropdown, not the actual filtered query above).
+    actions = saas_fetchall(
+        "SELECT DISTINCT action FROM saas_audit_logs ORDER BY action LIMIT 200"
+    )
+
+    return render_template(
+        "app_admin/audit_logs.html",
+        logs=logs, total=total, page=page, per_page=per_page,
+        total_pages=max(1, (total + per_page - 1) // per_page),
+        actions=[a["action"] for a in actions],
+        action_filter=action_filter, status_filter=status_filter, search=search,
+    )
+
+
 @app_admin_bp.route("/notifications/diagnostics", methods=["GET", "POST"])
 @super_admin_required
 def notification_diagnostics():
