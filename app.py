@@ -284,3 +284,39 @@ if __name__ == "__main__":
     print("  http://127.0.0.1:5000")
     print("═"*55 + "\n")
     app.run(host=ActiveConfig.HOST, port=ActiveConfig.PORT, debug=ActiveConfig.DEBUG)
+from flask import Response, url_for
+
+@app.route("/sitemap.xml")
+def sitemap():
+    pages = [
+        ("unified_login.login", {}),
+        ("saas_auth.signup", {}),
+        # Add more public pages here
+        # ("about", {}),
+        # ("contact", {}),
+    ]
+
+    xml = ['<?xml version="1.0" encoding="UTF-8"?>']
+    xml.append('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
+
+    for endpoint, values in pages:
+        xml.append("<url>")
+        xml.append(f"<loc>{url_for(endpoint, _external=True, **values)}</loc>")
+        xml.append("</url>")
+
+    xml.append("</urlset>")
+
+    return Response("\n".join(xml), mimetype="application/xml")
+    
+    
+    from flask import Response
+
+@app.route("/robots.txt")
+def robots():
+    text = f"""User-agent: *
+Allow: /
+
+Sitemap: {url_for('sitemap', _external=True)}
+"""
+    return Response(text, mimetype="text/plain")
+    
