@@ -1,0 +1,54 @@
+{% extends "public/_layout.html" %}
+{% set seo_title = "Privacy Policy | BizManager" %}
+{% set seo_description = "How BizManager collects, uses, stores, and protects data for business owners and their teams." %}
+{% block title %}{{ seo_title }}{% endblock %}
+
+{% block content %}
+<h1>Privacy Policy</h1>
+<p class="subtitle">Last updated: {{ policy_updated }}</p>
+
+<p>
+  This policy explains what information BizManager collects when you sign up
+  for and use the platform, and how that information is used, stored, and
+  protected.
+</p>
+
+<h2>Information we collect</h2>
+<ul>
+  <li><strong>Account information</strong> — full name, mobile number, email address, and a hashed PIN or password. We never store passwords or PINs in plain text.</li>
+  <li><strong>Business data</strong> — the products, customers, suppliers, invoices, and transactions you enter to run your business.</li>
+  <li><strong>Usage &amp; security data</strong> — login timestamps, IP address, and audit logs of key account actions, used to protect your account and diagnose issues.</li>
+</ul>
+
+<h2>How we use it</h2>
+<ul>
+  <li>To provide and operate your BizManager account and the business modules you use (billing, inventory, GST, accounts, and reports).</li>
+  <li>To send OTPs, login alerts, and service notifications by email or SMS.</li>
+  <li>To detect, investigate, and prevent fraud, abuse, and unauthorized access.</li>
+</ul>
+
+<h2>What we don't do</h2>
+<ul>
+  <li>We do not sell your business data or customer lists to third parties.</li>
+  <li>We do not ask for your password, PIN, or OTP over email, phone, or SMS — only through the official BizManager sign-in page.</li>
+</ul>
+
+<h2>Data storage &amp; security</h2>
+<p>
+  Data is stored in an access-controlled database and transmitted over
+  encrypted (HTTPS) connections. Access to a business's data is scoped to
+  that business's own account and team members.
+</p>
+
+<h2>Your choices</h2>
+<p>
+  You can request a copy of your data or ask us to delete your account by
+  contacting us — see the <a href="{{ url_for('public.contact') }}">Contact</a> page.
+</p>
+
+<h2>Changes to this policy</h2>
+<p>
+  We may update this policy as the platform evolves. Material changes will
+  be reflected by updating the "Last updated" date above.
+</p>
+{% endblock %}

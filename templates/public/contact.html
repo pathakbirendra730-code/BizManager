@@ -1,0 +1,51 @@
+{% extends "public/_layout.html" %}
+{% set seo_title = "Contact BizManager | Business Management Software Support" %}
+{% set seo_description = "Get in touch with the BizManager team for support, billing questions, or general enquiries about the business management platform." %}
+{% block title %}{{ seo_title }}{% endblock %}
+
+{% block content %}
+<h1>Contact Us</h1>
+<p class="subtitle">Questions about your account, billing, or the platform in general.</p>
+
+{#
+  TODO (operator action required): SUPPORT_EMAIL / SUPPORT_PHONE below are
+  read from environment variables so real contact details never need to be
+  hardcoded into the template. Set SUPPORT_EMAIL (and optionally
+  SUPPORT_PHONE / SUPPORT_ADDRESS) in your .env / Render environment before
+  submitting the Search Console review request — a placeholder contact
+  address undermines the trust signal this page exists to provide.
+#}
+<div class="contact-item">
+  <span>✉️</span>
+  <div>
+    <strong>Email</strong><br>
+    <a href="mailto:{{ support_email }}">{{ support_email }}</a>
+  </div>
+</div>
+
+{% if support_phone %}
+<div class="contact-item">
+  <span>📞</span>
+  <div>
+    <strong>Phone</strong><br>
+    {{ support_phone }}
+  </div>
+</div>
+{% endif %}
+
+<div class="contact-item">
+  <span>🕐</span>
+  <div>
+    <strong>Support hours</strong><br>
+    Monday–Saturday, 10:00–18:00 IST
+  </div>
+</div>
+
+<h2>Reporting a security concern</h2>
+<p>
+  If you believe you've received a suspicious message claiming to be from
+  BizManager, or found a page on this site that looks like it's impersonating
+  BizManager or another service, please email us using the address above so
+  we can investigate.
+</p>
+{% endblock %}

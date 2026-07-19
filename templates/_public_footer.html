@@ -1,0 +1,24 @@
+{# templates/_public_footer.html — shared footer for public-facing pages #}
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <div class="site-footer-brand">🏪 BizManager</div>
+    <p class="site-footer-tagline">Business management software for Indian shop owners.</p>
+    <nav class="site-footer-links">
+      <a href="{{ url_for('public.about') }}">About</a>
+      <a href="{{ url_for('public.contact') }}">Contact</a>
+      <a href="{{ url_for('public.privacy') }}">Privacy Policy</a>
+      <a href="{{ url_for('public.terms') }}">Terms of Service</a>
+    </nav>
+    <p class="site-footer-copy">&copy; {{ current_year }} BizManager. All rights reserved.</p>
+  </div>
+</footer>
+<style>
+  .site-footer { margin-top: 32px; padding: 24px 20px 28px; text-align: center; }
+  .site-footer-inner { max-width: 440px; margin: 0 auto; }
+  .site-footer-brand { color: rgba(255,255,255,0.85); font-weight: 700; font-size: 14px; }
+  .site-footer-tagline { color: rgba(255,255,255,0.5); font-size: 12px; margin: 4px 0 12px; }
+  .site-footer-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin-bottom: 10px; }
+  .site-footer-links a { color: rgba(255,255,255,0.65); font-size: 12px; text-decoration: none; }
+  .site-footer-links a:hover { color: #fff; text-decoration: underline; }
+  .site-footer-copy { color: rgba(255,255,255,0.35); font-size: 11px; margin: 0; }
+</style>

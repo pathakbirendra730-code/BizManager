@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="google-site-verification" content="pUGzJTKnATBYyF64ZTwIj7oen9ykU6Yd1dt5qhIrQn0" />
+  <title>{% block title %}BizManager{% endblock %}</title>
+  {% include "_seo_head.html" %}
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      min-height: 100vh; margin: 0;
+      background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      padding: 20px; display: flex; flex-direction: column; align-items: center;
+    }
+    .top-nav { width: 100%; max-width: 720px; display: flex; justify-content: space-between;
+      align-items: center; padding: 12px 4px 24px; }
+    .top-nav .brand { color: #fff; font-weight: 700; font-size: 18px; text-decoration: none; }
+    .top-nav .brand .logo { margin-right: 6px; }
+    .top-nav a.back { color: rgba(255,255,255,0.7); font-size: 13px; text-decoration: none; }
+    .top-nav a.back:hover { color: #fff; }
+    .page-card {
+      width: 100%; max-width: 720px; background: rgba(255,255,255,0.98);
+      border-radius: 20px; padding: 40px 44px; box-shadow: 0 25px 60px rgba(0,0,0,0.4);
+      color: #1f2937; line-height: 1.65;
+    }
+    .page-card h1 { font-size: 26px; margin: 0 0 6px; color: #111827; }
+    .page-card .subtitle { color: #6b7280; font-size: 14px; margin: 0 0 26px; }
+    .page-card h2 { font-size: 17px; margin: 26px 0 8px; color: #111827; }
+    .page-card p, .page-card li { font-size: 14.5px; color: #374151; }
+    .page-card ul { padding-left: 20px; }
+    .page-card a { color: #4f46e5; }
+    .contact-item { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0; font-size: 14.5px; }
+    @media (max-width: 480px) {
+      .page-card { padding: 26px 22px; border-radius: 16px; }
+      .page-card h1 { font-size: 22px; }
+      .top-nav { padding: 8px 4px 18px; }
+      .top-nav .brand { font-size: 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="top-nav">
+  <a class="brand" href="{{ url_for('unified_login.login') }}"><span class="logo">🏪</span>BizManager</a>
+  <a class="back" href="{{ url_for('unified_login.login') }}">← Back to Sign In</a>
+</div>
+
+<div class="page-card">
+  {% block content %}{% endblock %}
+</div>
+
+{% include "_public_footer.html" %}
+
+</body>
+</html>

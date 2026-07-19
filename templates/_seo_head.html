@@ -1,0 +1,30 @@
+{# ────────────────────────────────────────────────────────────────────────
+   templates/_seo_head.html — shared SEO / trust-signal head block
+   ────────────────────────────────────────────────────────────────────────
+   Included on every PUBLIC-facing page (login, signup, about, contact,
+   privacy, terms). Not included on authenticated app pages or the
+   noindex'd admin/secondary-auth pages, which don't need to rank and
+   shouldn't carry a canonical/OG identity.
+
+   Expects from the including template:
+     seo_title       — page title text (required — used for OG/Twitter)
+     seo_description — page-specific meta description (falls back below)
+#}
+{% set _desc = seo_description or 'BizManager is a business management platform for Indian shop owners — billing, inventory, GST-ready invoicing, suppliers, and accounts in one place.' %}
+<meta name="description" content="{{ _desc }}">
+<link rel="canonical" href="{{ url_for(request.endpoint, _external=True, **(request.view_args or {})) }}">
+
+<link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+
+<meta property="og:site_name" content="BizManager">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ seo_title or 'BizManager' }}">
+<meta property="og:description" content="{{ _desc }}">
+<meta property="og:image" content="{{ url_for('static', filename='og-image.png', _external=True) }}">
+<meta property="og:url" content="{{ url_for(request.endpoint, _external=True, **(request.view_args or {})) }}">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ seo_title or 'BizManager' }}">
+<meta name="twitter:description" content="{{ _desc }}">
+<meta name="twitter:image" content="{{ url_for('static', filename='og-image.png', _external=True) }}">

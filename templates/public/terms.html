@@ -1,0 +1,56 @@
+{% extends "public/_layout.html" %}
+{% set seo_title = "Terms of Service | BizManager" %}
+{% set seo_description = "The terms that govern use of the BizManager business management platform." %}
+{% block title %}{{ seo_title }}{% endblock %}
+
+{% block content %}
+<h1>Terms of Service</h1>
+<p class="subtitle">Last updated: {{ policy_updated }}</p>
+
+<p>
+  These terms govern your use of BizManager, a business management platform
+  for shop owners. By creating an account or signing in, you agree to these
+  terms.
+</p>
+
+<h2>Your account</h2>
+<ul>
+  <li>You're responsible for keeping your mobile number, PIN, and any team member credentials confidential.</li>
+  <li>You're responsible for the accuracy of the business data (invoices, stock, customer records) you enter.</li>
+  <li>Team members you invite to your business account can act within the permissions of the role you assign them.</li>
+</ul>
+
+<h2>Acceptable use</h2>
+<p>
+  BizManager may not be used for unlawful purposes, to impersonate another
+  person or business, or to attempt to gain unauthorized access to another
+  account or business's data.
+</p>
+
+<h2>Service availability</h2>
+<p>
+  We aim to keep BizManager available and reliable, but the service is
+  provided "as is" without guaranteeing uninterrupted availability. Planned
+  maintenance or unforeseen issues may occasionally affect access.
+</p>
+
+<h2>Termination</h2>
+<p>
+  You may stop using BizManager and request account deletion at any time —
+  see the <a href="{{ url_for('public.contact') }}">Contact</a> page. We may
+  suspend accounts that violate these terms or pose a security risk to the
+  platform or other users.
+</p>
+
+<h2>Changes to these terms</h2>
+<p>
+  We may update these terms as the platform evolves. Continued use of
+  BizManager after an update means you accept the revised terms.
+</p>
+
+<h2>Contact</h2>
+<p>
+  Questions about these terms? Reach out via the
+  <a href="{{ url_for('public.contact') }}">Contact page</a>.
+</p>
+{% endblock %}

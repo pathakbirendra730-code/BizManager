@@ -4,14 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="google-site-verification" content="pUGzJTKnATBYyF64ZTwIj7oen9ykU6Yd1dt5qhIrQn0" />
-  <title>Sign In | BizManager</title>
+  <title>Sign In | BizManager — Business Management Software for Shop Owners</title>
+  {% set seo_title = "Sign In | BizManager — Business Management Software for Shop Owners" %}
+  {% set seo_description = "Sign in to BizManager, a business management platform for Indian shop owners — billing, inventory, GST invoicing, suppliers, and accounts in one place." %}
+  {% include "_seo_head.html" %}
   <style>
     *, *::before, *::after { box-sizing: border-box; }
 
     body {
       min-height: 100vh; margin: 0;
       background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
-      display: flex; align-items: center; justify-content: center;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
       padding: 20px;
     }
@@ -64,7 +67,8 @@
 
     .pin-group { display: flex; gap: 8px; justify-content: flex-start; margin: 4px 0 2px; }
     .pin-digit {
-      width: 46px; height: 54px; text-align: center; font-size: 20px; font-weight: 700;
+      flex: 1 1 0; min-width: 0; max-width: 46px; aspect-ratio: 0.85 / 1;
+      text-align: center; font-size: 20px; font-weight: 700;
       border: 2px solid #d1d5db; border-radius: 12px; background: #f9fafb; color: #111827;
       outline: none; transition: border-color 0.2s, box-shadow 0.2s;
     }
@@ -112,7 +116,7 @@
 
     @media (max-width: 480px) {
       .card { padding: 28px 22px; border-radius: 16px; }
-      .pin-digit { width: 40px; height: 50px; font-size: 18px; }
+      .pin-digit { font-size: 18px; }
     }
   </style>
 </head>
@@ -122,7 +126,7 @@
   <div class="brand">
     <div class="logo">🏪</div>
     <h1>BizManager</h1>
-    <p>Sign in to continue</p>
+    <p>Business management software for shop owners — billing, inventory, GST &amp; accounts</p>
   </div>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -191,6 +195,8 @@
     </div>
   </div>
 </div>
+
+{% include "_public_footer.html" %}
 
 <script>
 (function() {

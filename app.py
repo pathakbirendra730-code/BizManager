@@ -35,6 +35,7 @@ from models.database import init_db
 from modules.saas_auth      import saas_auth_bp
 from modules.app_admin      import app_admin_bp
 from modules.unified_login  import unified_bp
+from modules.public         import public_bp
 from modules.saas_business  import saas_customers_bp, saas_products_bp, saas_suppliers_bp, saas_billing_bp, saas_purchase_bp, saas_finance_bp, saas_reports_bp, saas_gst_bp, saas_accounts_bp, saas_dashboard_bp
 
 
@@ -113,6 +114,7 @@ def create_app():
     app.register_blueprint(saas_auth_bp)                          # prefix /saas built-in
     app.register_blueprint(app_admin_bp)                          # prefix /app-admin built-in
     app.register_blueprint(unified_bp)                            # /login — single entry point
+    app.register_blueprint(public_bp)                             # /about /contact /privacy /terms — trust pages
     app.register_blueprint(saas_customers_bp)                     # /biz/customers — SaaS-native
     app.register_blueprint(saas_products_bp)                      # /biz/products — SaaS-native
     app.register_blueprint(saas_suppliers_bp)                     # /biz/suppliers — SaaS-native
@@ -202,14 +204,51 @@ def create_app():
 
     @app.route("/robots.txt")
     def robots_txt():
-        # Every /app-admin/* and /saas/* auth page already sends
-        # <meta name="robots" content="noindex, nofollow">, but a proper
-        # robots.txt is both a completeness item from the audit and a
-        # small "this is a real, maintained site" legitimacy signal.
-        return Response(
-            "User-agent: *\nDisallow: /app-admin/\nDisallow: /saas/\n",
-            mimetype="text/plain"
-        )
+        # Every /app-admin/* and /saas/* auth/secondary page already sends
+        # <meta name="robots" content="noindex, nofollow"> individually —
+        # this is the second, crawler-level layer of the same rule, and is
+        # also a "this is a real, maintained site" legitimacy signal in its
+        # own right. /biz/ (the authenticated business app) is disallowed
+        # too: it requires a login and redirects unauthenticated crawlers
+        # to /login anyway, so there's nothing there worth indexing.
+        # The public marketing/trust pages are explicitly allowed so
+        # nothing here accidentally blocks them.
+        lines = [
+            "User-agent: *",
+            "Allow: /$",
+            "Allow: /login$",
+            "Allow: /about",
+            "Allow: /contact",
+            "Allow: /privacy",
+            "Allow: /terms",
+            "Disallow: /app-admin/",
+            "Disallow: /saas/",
+            "Disallow: /biz/",
+            "Disallow: /login/submit",
+            "Disallow: /login/identify",
+            f"Sitemap: {url_for('sitemap_xml', _external=True)}",
+        ]
+        return Response("\n".join(lines) + "\n", mimetype="text/plain")
+
+    @app.route("/sitemap.xml")
+    def sitemap_xml():
+        # Only the pages that are actually public and meant to be indexed.
+        # Every one of these is a plain GET with no auth requirement — never
+        # add an authenticated or state-changing route here.
+        pages = [
+            ("unified_login.login", {}),
+            ("public.about", {}),
+            ("public.contact", {}),
+            ("public.privacy", {}),
+            ("public.terms", {}),
+        ]
+        xml = ['<?xml version="1.0" encoding="UTF-8"?>',
+               '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+        for endpoint, values in pages:
+            xml.append("<url><loc>%s</loc></url>" %
+                       url_for(endpoint, _external=True, **values))
+        xml.append("</urlset>")
+        return Response("\n".join(xml), mimetype="application/xml")
 
     # ── Global 404 handler (Update_021) ──────────────────────────────────────
     # Every 404 in the app — a genuinely missing route, a bad link, or the
@@ -253,6 +292,9 @@ def create_app():
             # CSRF token — available in every blueprint's templates
             "csrf_token": csrf_token,
 
+            # Used by templates/_public_footer.html's copyright line
+            "current_year": datetime.utcnow().year,
+
             # SaaS auth context (available in all templates)
             "saas_user_id":     session.get("saas_user_id"),
             "saas_fullname":    session.get("saas_fullname", ""),
@@ -284,39 +326,3 @@ if __name__ == "__main__":
     print("  http://127.0.0.1:5000")
     print("═"*55 + "\n")
     app.run(host=ActiveConfig.HOST, port=ActiveConfig.PORT, debug=ActiveConfig.DEBUG)
-from flask import Response, url_for
-
-@app.route("/sitemap.xml")
-def sitemap():
-    pages = [
-        ("unified_login.login", {}),
-        ("saas_auth.signup", {}),
-        # Add more public pages here
-        # ("about", {}),
-        # ("contact", {}),
-    ]
-
-    xml = ['<?xml version="1.0" encoding="UTF-8"?>']
-    xml.append('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
-
-    for endpoint, values in pages:
-        xml.append("<url>")
-        xml.append(f"<loc>{url_for(endpoint, _external=True, **values)}</loc>")
-        xml.append("</url>")
-
-    xml.append("</urlset>")
-
-    return Response("\n".join(xml), mimetype="application/xml")
-    
-    
-    from flask import Response
-
-@app.route("/robots.txt")
-def robots():
-    text = f"""User-agent: *
-Allow: /
-
-Sitemap: {url_for('sitemap', _external=True)}
-"""
-    return Response(text, mimetype="text/plain")
-    
