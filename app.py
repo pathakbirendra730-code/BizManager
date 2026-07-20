@@ -7,6 +7,13 @@ Run:  python app.py
 URL:  http://127.0.0.1:5000
 """
 
+# Shown in the Help/About menu on both the user and admin dashboards
+# (see templates/_help_menu.html and templates/app_admin/_help_menu_admin.html).
+# Override via env var per-deploy if you want it to track a release tag;
+# defaults to the current product generation from BizManager's own docs.
+APP_VERSION = os.environ.get("APP_VERSION", "6.0")
+
+
 # Load .env file in development (no-op in production where env vars are set by
 # Render). Explicitly point at the .env sitting next to this file, rather than
 # relying on the current working directory — Pydroid 3 (and some other
@@ -36,7 +43,7 @@ from modules.saas_auth      import saas_auth_bp
 from modules.app_admin      import app_admin_bp
 from modules.unified_login  import unified_bp
 from modules.public         import public_bp
-from modules.saas_business  import saas_customers_bp, saas_products_bp, saas_suppliers_bp, saas_billing_bp, saas_purchase_bp, saas_finance_bp, saas_reports_bp, saas_gst_bp, saas_accounts_bp, saas_dashboard_bp
+from modules.saas_business  import saas_customers_bp, saas_products_bp, saas_suppliers_bp, saas_billing_bp, saas_purchase_bp, saas_finance_bp, saas_emi_bp, saas_reports_bp, saas_gst_bp, saas_accounts_bp, saas_dashboard_bp
 
 
 def create_app():
@@ -121,6 +128,7 @@ def create_app():
     app.register_blueprint(saas_billing_bp)                       # /biz/billing — SaaS-native
     app.register_blueprint(saas_purchase_bp)                      # /biz/purchase — SaaS-native
     app.register_blueprint(saas_finance_bp)                       # /biz/finance — SaaS-native
+    app.register_blueprint(saas_emi_bp)                            # /biz/finance/emi — EMI/loan calculator
     app.register_blueprint(saas_reports_bp)                       # /biz/reports — SaaS-native
     app.register_blueprint(saas_gst_bp)                           # /biz/gst — SaaS-native
     app.register_blueprint(saas_accounts_bp)                      # /biz/accounts — SaaS-native
@@ -294,6 +302,9 @@ def create_app():
 
             # Used by templates/_public_footer.html's copyright line
             "current_year": datetime.utcnow().year,
+
+            # Shown in the Help/About menu — see templates/_help_menu.html
+            "app_version": APP_VERSION,
 
             # SaaS auth context (available in all templates)
             "saas_user_id":     session.get("saas_user_id"),

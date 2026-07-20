@@ -199,6 +199,7 @@
   </div>
   <div class="admin-user">
     <span class="who">{{ admin_fullname }}</span>
+    {% include 'app_admin/_help_menu_admin.html' %}
     <a href="{{ url_for('app_admin.logout') }}" class="admin-logout">Sign Out</a>
   </div>
 </div>

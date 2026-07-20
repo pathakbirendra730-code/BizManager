@@ -10,7 +10,7 @@ This is a parallel schema to models/database.py — it does NOT touch
 or migrate the legacy shop/users data. SaaS businesses get their own
 fully isolated operational tables from day one.
 
-Tables (13):
+Tables (14):
   saas_categories       — product categories, per business
   saas_products         — inventory items, per business
   saas_customers         — customer master, per business
@@ -24,6 +24,7 @@ Tables (13):
   saas_ledger            — universal double-entry-style ledger
   saas_cash_book         — cash receipts/payments register
   saas_bank_book         — bank account register
+  saas_emi_history        — EMI/loan calculator saved results, scoped per user
 
 HSN master (hsn_master) remains global/shared — it's reference data,
 not tenant data, so the existing legacy table is reused as-is via a
@@ -256,6 +257,28 @@ def _init_sqlite(c):
         expense_date TEXT    DEFAULT (date('now')),
         created_by   INTEGER REFERENCES saas_users(id),
         created_at   TEXT    DEFAULT (datetime('now'))
+    )""")
+
+    # ── saas_emi_history ────────────────────────────────────────────────────────
+    # EMI/loan calculator tool (Finance section). Scoped by BOTH business_id
+    # and user_id — every query filters on both, so one team member's saved
+    # calculations are never visible to another team member, even the owner.
+    # That's a deliberate exception to this app's usual "owner/accountant can
+    # see all business data" model: EMI history is closer to a personal
+    # scratchpad than a business record.
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_emi_history (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        business_id    INTEGER NOT NULL REFERENCES saas_businesses(id) ON DELETE CASCADE,
+        user_id        INTEGER NOT NULL REFERENCES saas_users(id) ON DELETE CASCADE,
+        label          TEXT    DEFAULT '',
+        principal      REAL    NOT NULL,
+        annual_rate    REAL    NOT NULL,
+        tenure_months  INTEGER NOT NULL,
+        emi_amount     REAL    NOT NULL,
+        total_interest REAL    NOT NULL,
+        total_payment  REAL    NOT NULL,
+        is_favorite    INTEGER NOT NULL DEFAULT 0,
+        created_at     TEXT    DEFAULT (datetime('now'))
     )""")
 
     # ── saas_suppliers ──────────────────────────────────────────────────────────
@@ -532,6 +555,24 @@ def _init_postgres(c):
         expense_date DATE DEFAULT CURRENT_DATE,
         created_by   INTEGER REFERENCES saas_users(id),
         created_at   TIMESTAMP DEFAULT NOW()
+    )""")
+
+    # ── saas_emi_history ────────────────────────────────────────────────────────
+    # See the matching SQLite CREATE TABLE above for the privacy-scoping note —
+    # this table is deliberately keyed by (business_id, user_id) together.
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_emi_history (
+        id             SERIAL PRIMARY KEY,
+        business_id    INTEGER NOT NULL REFERENCES saas_businesses(id) ON DELETE CASCADE,
+        user_id        INTEGER NOT NULL REFERENCES saas_users(id) ON DELETE CASCADE,
+        label          VARCHAR(150) DEFAULT '',
+        principal      NUMERIC(14,2) NOT NULL,
+        annual_rate    NUMERIC(6,3) NOT NULL,
+        tenure_months  INTEGER NOT NULL,
+        emi_amount     NUMERIC(14,2) NOT NULL,
+        total_interest NUMERIC(14,2) NOT NULL,
+        total_payment  NUMERIC(14,2) NOT NULL,
+        is_favorite    BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at     TIMESTAMP DEFAULT NOW()
     )""")
 
     c.execute("""CREATE TABLE IF NOT EXISTS saas_suppliers (

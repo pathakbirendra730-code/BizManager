@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}EMI Calculator{% endblock %}
+{% block page_title %}EMI Calculator — {{ saas_biz_name or '' }}{% endblock %}
+{% block content %}
+
+<div class="grid-2col">
+  <div class="card">
+    <div class="card-header"><h3>🏦 Loan Details</h3></div>
+    <div class="card-body">
+      <div class="form-group">
+        <label>Loan Amount (₹) *</label>
+        <input type="number" id="principal" class="form-control form-control-lg"
+               min="1" step="0.01" value="100000" inputmode="decimal">
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label>Interest Rate (% per year) *</label>
+          <input type="number" id="rate" class="form-control form-control-lg"
+                 min="0" step="0.01" value="10" inputmode="decimal">
+        </div>
+        <div class="form-group">
+          <label>Tenure (months) *</label>
+          <input type="number" id="tenure" class="form-control form-control-lg"
+                 min="1" step="1" value="12" inputmode="numeric">
+        </div>
+      </div>
+      <p class="text-muted small mb-0">
+        Updates automatically as you type. Nothing here is saved until you
+        click "Save to History" below.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3>📊 Result</h3></div>
+    <div class="card-body">
+      <div class="emi-result">
+        <div class="emi-result-label">Monthly EMI</div>
+        <div class="emi-result-value" id="resultEmi">₹0</div>
+      </div>
+      <div class="form-row-2 mt-2">
+        <div class="emi-stat">
+          <div class="text-muted small">Total Interest</div>
+          <div class="emi-stat-value" id="resultInterest">₹0</div>
+        </div>
+        <div class="emi-stat">
+          <div class="text-muted small">Total Payment</div>
+          <div class="emi-stat-value" id="resultTotal">₹0</div>
+        </div>
+      </div>
+
+      <form method="POST" action="{{ url_for('saas_emi.save') }}" class="mt-2" id="saveForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="principal" id="savePrincipal">
+        <input type="hidden" name="annual_rate" id="saveRate">
+        <input type="hidden" name="tenure_months" id="saveTenure">
+        <input type="hidden" name="emi_amount" id="saveEmi">
+        <input type="hidden" name="total_interest" id="saveInterest">
+        <input type="hidden" name="total_payment" id="saveTotal">
+        <div class="form-group">
+          <label>Label (optional)</label>
+          <input type="text" name="label" class="form-control" maxlength="150"
+                 placeholder="e.g. Shop AC, Delivery bike loan…">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">💾 Save to History</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-header">
+    <h3>📅 Amortization Schedule</h3>
+    <span class="text-muted small" id="scheduleCount"></span>
+  </div>
+  <div class="card-body p-0">
+    <div style="max-height:420px; overflow-y:auto;">
+      <table class="table table-hover">
+        <thead>
+          <tr><th>#</th><th>Month</th><th>Opening</th><th>Principal</th><th>Interest</th><th>EMI</th><th>Closing</th></tr>
+        </thead>
+        <tbody id="scheduleBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-header">
+    <h3>⭐ Your Saved Calculations</h3>
+    <span class="text-muted small">Only visible to you</span>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover">
+      <thead>
+        <tr><th>Label</th><th>Principal</th><th>Rate</th><th>Tenure</th><th>EMI</th><th>Saved</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for h in history %}
+        <tr>
+          <td>{{ h.label or '—' }}</td>
+          <td>₹{{ "%.2f"|format(h.principal) }}</td>
+          <td>{{ "%.2f"|format(h.annual_rate) }}%</td>
+          <td>{{ h.tenure_months }} mo</td>
+          <td><strong>₹{{ "%.2f"|format(h.emi_amount) }}</strong></td>
+          <td class="text-muted small">{{ h.created_at }}</td>
+          <td>
+            <div style="display:flex; gap:6px;">
+              <form method="POST" action="{{ url_for('saas_emi.toggle_favorite', entry_id=h.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="btn btn-sm btn-secondary" title="Favorite">
+                  {{ '★' if h.is_favorite else '☆' }}
+                </button>
+              </form>
+              <form method="POST" action="{{ url_for('saas_emi.delete', entry_id=h.id) }}"
+                    onsubmit="return confirm('Delete this saved calculation?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="btn btn-sm btn-danger">🗑</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No saved calculations yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<style>
+  .emi-result { text-align: center; padding: 10px 0 4px; }
+  .emi-result-label { font-size: .8rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+  .emi-result-value { font-size: 2.1rem; font-weight: 800; color: var(--primary); margin-top: 4px; }
+  .emi-stat { background: var(--surface2); border-radius: 10px; padding: 10px 12px; }
+  .emi-stat-value { font-size: 1.05rem; font-weight: 700; margin-top: 2px; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  'use strict';
+
+  // ── EMI math (same formulas as any standard reducing-balance EMI calculator) ──
+  function calcEMI(P, annualRate, months) {
+    if (months <= 0 || P <= 0) return 0;
+    if (annualRate === 0) return P / months;
+    const R = (annualRate / 12) / 100;
+    const pow = Math.pow(1 + R, months);
+    return (P * R * pow) / (pow - 1);
+  }
+
+  function buildSchedule(P, annualRate, months) {
+    const R = (annualRate / 12) / 100;
+    const emi = calcEMI(P, annualRate, months);
+    const rows = [];
+    let balance = P;
+
+    for (let m = 1; m <= months; m++) {
+      const interest = +(balance * R).toFixed(2);
+      let principal = +(emi - interest).toFixed(2);
+      if (m === months || principal > balance) principal = +balance.toFixed(2);
+      const closing = Math.max(0, +(balance - principal).toFixed(2));
+
+      rows.push({ no: m, opening: +balance.toFixed(2), principal, interest,
+                  emi: +(principal + interest).toFixed(2), closing });
+      balance = closing;
+      if (balance === 0) break;
+    }
+    return rows;
+  }
+
+  function fmtINR(n) {
+    return '₹' + (n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  }
+  function fmtINR2(n) {
+    return '₹' + (n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  const principalEl = document.getElementById('principal');
+  const rateEl       = document.getElementById('rate');
+  const tenureEl     = document.getElementById('tenure');
+
+  let lastResult = null;
+
+  function recalc() {
+    const P      = Math.max(0, parseFloat(principalEl.value) || 0);
+    const rate   = Math.max(0, parseFloat(rateEl.value) || 0);
+    const months = Math.max(0, parseInt(tenureEl.value, 10) || 0);
+
+    const emi = calcEMI(P, rate, months);
+    const schedule = buildSchedule(P, rate, months);
+    const totalPayment = emi * months;
+    const totalInterest = Math.max(0, totalPayment - P);
+
+    document.getElementById('resultEmi').textContent = fmtINR(emi);
+    document.getElementById('resultInterest').textContent = fmtINR(totalInterest);
+    document.getElementById('resultTotal').textContent = fmtINR(totalPayment);
+
+    document.getElementById('savePrincipal').value = P;
+    document.getElementById('saveRate').value = rate;
+    document.getElementById('saveTenure').value = months;
+    document.getElementById('saveEmi').value = emi.toFixed(2);
+    document.getElementById('saveInterest').value = totalInterest.toFixed(2);
+    document.getElementById('saveTotal').value = totalPayment.toFixed(2);
+
+    const tbody = document.getElementById('scheduleBody');
+    tbody.innerHTML = schedule.map(r => `
+      <tr>
+        <td>${r.no}</td>
+        <td>Month ${r.no}</td>
+        <td>${fmtINR2(r.opening)}</td>
+        <td>${fmtINR2(r.principal)}</td>
+        <td>${fmtINR2(r.interest)}</td>
+        <td>${fmtINR2(r.emi)}</td>
+        <td>${fmtINR2(r.closing)}</td>
+      </tr>`).join('');
+    document.getElementById('scheduleCount').textContent = schedule.length + ' installments';
+
+    lastResult = { P, rate, months, emi, totalInterest, totalPayment };
+  }
+
+  [principalEl, rateEl, tenureEl].forEach(el => el.addEventListener('input', recalc));
+
+  document.getElementById('saveForm').addEventListener('submit', function (e) {
+    if (!lastResult || lastResult.P <= 0 || lastResult.months <= 0) {
+      e.preventDefault();
+      alert('Enter a valid loan amount and tenure before saving.');
+    }
+  });
+
+  recalc();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,81 @@
+{#
+  _help_menu_admin.html — Help/About dropdown for the App Admin dashboard.
+  Include with:  {% include 'app_admin/_help_menu_admin.html' %}
+
+  Same destinations as the user-dashboard Help menu (templates/_help_menu.html),
+  just restyled to match base_admin.html's dark, hardcoded-color theme instead
+  of the user dashboard's CSS-variable theme.
+#}
+<div class="admin-help-menu" style="position:relative; display:inline-block;">
+
+  <button onclick="toggleAdminHelpMenu()" id="adminHelpMenuBtn" title="Help &amp; About"
+    style="display:flex; align-items:center; justify-content:center;
+           width:30px; height:30px; border-radius:8px; cursor:pointer;
+           background:#1f2430; border:1px solid #2a3140; color:#e5e7eb;
+           font-size:13px; font-weight:700;">
+    ?
+  </button>
+
+  <div id="adminHelpDropdown"
+    style="display:none; position:absolute; right:0; top:calc(100% + 8px);
+           background:#11151f; border-radius:12px; min-width:220px;
+           box-shadow:0 12px 40px rgba(0,0,0,0.5); z-index:9999;
+           border:1px solid #1f2430; overflow:hidden;">
+
+    <div style="padding:12px 16px; background:#161b26; border-bottom:1px solid #1f2430;
+                display:flex; align-items:center; gap:8px;">
+      <span style="font-size:15px;">🏪</span>
+      <span style="font-weight:700; color:#e5e7eb; font-size:13px;">BizManager Help</span>
+    </div>
+
+    <div style="padding:6px 0;">
+      <a href="{{ url_for('public.about') }}" target="_blank" rel="noopener" class="admin-help-menu-item">
+        <span>ℹ️</span> About BizManager
+      </a>
+      <a href="{{ url_for('public.contact') }}" target="_blank" rel="noopener" class="admin-help-menu-item">
+        <span>✉️</span> Contact Support
+      </a>
+      <a href="{{ url_for('public.privacy') }}" target="_blank" rel="noopener" class="admin-help-menu-item">
+        <span>🔒</span> Privacy Policy
+      </a>
+      <a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener" class="admin-help-menu-item">
+        <span>📄</span> Terms of Service
+      </a>
+
+      <div style="height:1px; background:#1f2430; margin:4px 0;"></div>
+
+      <div style="display:flex; align-items:center; gap:10px; padding:8px 16px;
+                  color:#6b7280; font-size:12px;">
+        <span>🏷️</span> Version {{ app_version }}
+      </div>
+
+      <div style="height:1px; background:#1f2430; margin:4px 0;"></div>
+
+      <a href="{{ url_for('app_admin.logout') }}" class="admin-help-menu-item" style="color:#fca5a5;">
+        <span>🚪</span> Sign Out
+      </a>
+    </div>
+  </div>
+</div>
+
+<style>
+  .admin-help-menu-item {
+    display:flex; align-items:center; gap:10px; padding:9px 16px;
+    color:#e5e7eb; text-decoration:none; font-size:13px; transition:background 0.15s;
+  }
+  .admin-help-menu-item:hover { background: #1a2030; }
+</style>
+
+<script>
+function toggleAdminHelpMenu() {
+  const d = document.getElementById('adminHelpDropdown');
+  d.style.display = d.style.display === 'none' ? 'block' : 'none';
+}
+document.addEventListener('click', function (e) {
+  const btn = document.getElementById('adminHelpMenuBtn');
+  const dd  = document.getElementById('adminHelpDropdown');
+  if (dd && btn && !btn.contains(e.target) && !dd.contains(e.target)) {
+    dd.style.display = 'none';
+  }
+});
+</script>

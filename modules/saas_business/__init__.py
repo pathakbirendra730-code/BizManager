@@ -5,6 +5,7 @@ from .suppliers import saas_suppliers_bp
 from .billing import saas_billing_bp
 from .purchase import saas_purchase_bp
 from .finance import saas_finance_bp
+from .emi import saas_emi_bp
 from .reports import saas_reports_bp
 from .gst import saas_gst_bp
 from .accounts import saas_accounts_bp

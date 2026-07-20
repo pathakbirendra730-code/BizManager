@@ -1,0 +1,81 @@
+{#
+  _help_menu.html — Help/About dropdown for the authenticated user dashboard.
+  Include with:  {% include '_help_menu.html' %}   (inside base.html's topbar-right)
+
+  Links to the existing public pages (templates/public/*.html, served by
+  modules/public.py) — nothing here duplicates that content, it just opens it.
+  Logout reuses the same saas_auth.logout endpoint as the sidebar/profile menu.
+#}
+<div class="help-menu" style="position:relative; display:inline-block;">
+
+  <button onclick="toggleHelpMenu()" id="helpMenuBtn" title="Help &amp; About"
+    style="display:flex; align-items:center; justify-content:center;
+           width:38px; height:38px; border-radius:10px; cursor:pointer;
+           background:rgba(255,255,255,0.12); border:1.5px solid rgba(255,255,255,0.2);
+           color:#fff; font-size:15px; font-weight:700;">
+    ?
+  </button>
+
+  <div id="helpDropdown"
+    style="display:none; position:absolute; right:0; top:calc(100% + 8px);
+           background:var(--surface); border-radius:14px; min-width:230px;
+           box-shadow:0 12px 40px rgba(0,0,0,0.18); z-index:9999;
+           border:1px solid var(--border); overflow:hidden;">
+
+    <div style="padding:14px 18px; background:var(--surface2); border-bottom:1px solid var(--border);
+                display:flex; align-items:center; gap:8px;">
+      <span style="font-size:16px;">🏪</span>
+      <span style="font-weight:700; color:var(--text); font-size:14px;">BizManager Help</span>
+    </div>
+
+    <div style="padding:6px 0;">
+      <a href="{{ url_for('public.about') }}" target="_blank" rel="noopener" class="help-menu-item">
+        <span>ℹ️</span> About BizManager
+      </a>
+      <a href="{{ url_for('public.contact') }}" target="_blank" rel="noopener" class="help-menu-item">
+        <span>✉️</span> Contact Support
+      </a>
+      <a href="{{ url_for('public.privacy') }}" target="_blank" rel="noopener" class="help-menu-item">
+        <span>🔒</span> Privacy Policy
+      </a>
+      <a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener" class="help-menu-item">
+        <span>📄</span> Terms of Service
+      </a>
+
+      <div style="height:1px; background:var(--border); margin:4px 0;"></div>
+
+      <div style="display:flex; align-items:center; gap:10px; padding:9px 18px;
+                  color:var(--text-muted); font-size:12.5px;">
+        <span>🏷️</span> Version {{ app_version }}
+      </div>
+
+      <div style="height:1px; background:var(--border); margin:4px 0;"></div>
+
+      <a href="{{ url_for('saas_auth.logout') }}" class="help-menu-item" style="color:#dc2626;">
+        <span>🚪</span> Sign Out
+      </a>
+    </div>
+  </div>
+</div>
+
+<style>
+  .help-menu-item {
+    display:flex; align-items:center; gap:10px; padding:10px 18px;
+    color:var(--text); text-decoration:none; font-size:14px; transition:background 0.15s;
+  }
+  .help-menu-item:hover { background: var(--surface2); }
+</style>
+
+<script>
+function toggleHelpMenu() {
+  const d = document.getElementById('helpDropdown');
+  d.style.display = d.style.display === 'none' ? 'block' : 'none';
+}
+document.addEventListener('click', function (e) {
+  const btn = document.getElementById('helpMenuBtn');
+  const dd  = document.getElementById('helpDropdown');
+  if (dd && btn && !btn.contains(e.target) && !dd.contains(e.target)) {
+    dd.style.display = 'none';
+  }
+});
+</script>
