@@ -88,9 +88,13 @@ def index():
         (biz_id,)
     )["t"]
 
+    # Update_024 fix: was SUM(saas_purchases.due_amount) — same drift bug as
+    # the main dashboard's payables card (see modules/saas_business/
+    # dashboard.py for the full explanation). saas_suppliers.balance is kept
+    # in sync on every code path and is now the single source both pages use.
     payable = saas_fetchone(
-        f"""SELECT COALESCE(SUM(due_amount),0) as t FROM saas_purchases
-            WHERE business_id={p} AND status!='cancelled'""",
+        f"""SELECT COALESCE(SUM(balance), 0) as t FROM saas_suppliers
+            WHERE business_id={p} AND is_active=TRUE""",
         (biz_id,)
     )["t"]
 

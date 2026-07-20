@@ -45,15 +45,35 @@ def index():
         (biz_id, today)
     )
 
+    # Update_024 fix: exclude cancelled invoices. cancel_invoice() (billing.py)
+    # reverses the underlying journal entries but never zeroes due_amount on
+    # the invoice row itself, so a cancelled unpaid/partial invoice's stale
+    # due_amount was still being counted here even though every other page
+    # that computes receivables (saas_billing.receivables, saas_accounts.index)
+    # already filters status IN ('unpaid','partial'). This aligns the
+    # dashboard with those.
     total_receivables = saas_fetchone(
         f"""SELECT COALESCE(SUM(due_amount), 0) as total
-            FROM saas_invoices WHERE business_id={p} AND due_amount > 0""",
+            FROM saas_invoices WHERE business_id={p} AND status IN ('unpaid','partial')""",
         (biz_id,)
     )
 
+    # Update_024 fix (the confirmed "supplier payment doesn't reduce dashboard
+    # payables" bug): this used to be SUM(saas_purchases.due_amount), which is
+    # only decremented when a supplier payment is tied to one specific
+    # purchase_id (see saas_suppliers.record_payment). A general/unallocated
+    # payment against a supplier's overall balance — a normal, supported flow
+    # in that same route — correctly reduces saas_suppliers.balance and the
+    # double-entry ledger, but left saas_purchases.due_amount (and therefore
+    # this card) completely unchanged. saas_suppliers.balance is the field
+    # that's actually kept in sync on every code path (purchase creation,
+    # any payment, purchase cancellation — see modules/saas_business/
+    # purchase.py and suppliers.py), so it's the correct single source for
+    # this figure. is_active=TRUE matches the same filter already used by
+    # the Suppliers list page's own payable summary card, for consistency.
     total_payables = saas_fetchone(
-        f"""SELECT COALESCE(SUM(due_amount), 0) as total
-            FROM saas_purchases WHERE business_id={p} AND due_amount > 0""",
+        f"""SELECT COALESCE(SUM(balance), 0) as total
+            FROM saas_suppliers WHERE business_id={p} AND is_active=TRUE""",
         (biz_id,)
     )
 

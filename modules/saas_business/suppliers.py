@@ -96,6 +96,23 @@ def add():
             (biz_id, d["name"], d["phone"], d["email"], d["address"],
              d["gstin"], d["state_code"], d["opening_balance"], d["opening_balance"])
         )
+
+        # Update_024 fix: post the opening balance to the double-entry ledger
+        # too, not just saas_suppliers.balance — otherwise Trial Balance /
+        # Balance Sheet / the supplier's own ledger view silently omit it.
+        if d["opening_balance"]:
+            from utils.ledger_transactions import record_opening_balance
+            from utils.ledger_service import InvalidLineError
+            try:
+                record_opening_balance(
+                    biz_id, "accounts_payable", d["opening_balance"],
+                    party_id=sup_id, party_name=d["name"], party_type="supplier",
+                    narration=f"Opening balance — {d['name']}",
+                    created_by=session.get("saas_user_id")
+                )
+            except (InvalidLineError, LookupError) as e:
+                flash(f"Supplier added, but opening balance could not be posted to the ledger: {e}", "warning")
+
         audit_log("supplier_created", business_id=biz_id,
                   entity_type="supplier", entity_id=str(sup_id), detail=f"name={d['name']}")
         flash(f"Supplier '{d['name']}' added.", "success")
@@ -341,12 +358,14 @@ def record_payment(sid):
             (amount, amount, amount, amount, amount, purchase_id, biz_id)
         )
 
-    # Update supplier running balance (never below zero)
+    # Update supplier running balance. Deliberately NOT floored at zero —
+    # see Update_024 changelog: paying a supplier more than currently due
+    # is a legitimate advance and must show up as a credit (negative)
+    # balance here, matching what the double-entry ledger already records.
+    # Clamping this to 0 was silently discarding real advance payments.
     saas_execute(
-        f"""UPDATE saas_suppliers SET
-            balance = CASE WHEN (balance - {p}) < 0 THEN 0 ELSE balance - {p} END
-            WHERE id={p} AND business_id={p}""",
-        (amount, amount, sid, biz_id)
+        f"UPDATE saas_suppliers SET balance = balance - {p} WHERE id={p} AND business_id={p}",
+        (amount, sid, biz_id)
     )
 
     today = datetime.utcnow().date().isoformat()
