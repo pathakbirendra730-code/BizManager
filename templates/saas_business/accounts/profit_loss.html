@@ -21,8 +21,12 @@
     </div>
     <div class="card-body">
       <div class="summary-row">
-        <span>Sales Revenue</span>
+        <span>Gross Sales</span>
         <strong class="text-success">₹{{ "%.2f"|format(sales.total) }}</strong>
+      </div>
+      <div class="summary-row text-muted">
+        <span style="padding-left:14px">— Sales Returns</span>
+        <span>− ₹{{ "%.2f"|format(sales_returns) }}</span>
       </div>
       <div class="summary-row text-muted">
         <span style="padding-left:14px">— Taxable Amount</span>
@@ -38,40 +42,43 @@
       </div>
       <hr>
       <div class="summary-row total-row">
-        <span>GROSS INCOME</span>
-        <span class="text-success">₹{{ "%.2f"|format(sales.total) }}</span>
+        <span>NET SALES</span>
+        <span class="text-success">₹{{ "%.2f"|format(net_sales) }}</span>
       </div>
     </div>
   </div>
 
   <div class="card">
     <div class="card-header" style="background:#fef2f2;border-color:#fecaca">
-      <h3 style="color:#991b1b">📉 Expenses & Costs</h3>
+      <h3 style="color:#991b1b">📉 Cost of Goods Sold</h3>
     </div>
     <div class="card-body">
       <div class="summary-row">
-        <span>Purchases (Cost of Goods)</span>
-        <span class="text-danger">₹{{ "%.2f"|format(purchases.total) }}</span>
+        <span>COGS (goods actually sold this period)</span>
+        <span class="text-danger">₹{{ "%.2f"|format(cogs) }}</span>
+      </div>
+      <div class="summary-row text-muted">
+        <span style="padding-left:14px">— Purchases this period</span>
+        <span>₹{{ "%.2f"|format(purchases.total) }}</span>
+      </div>
+      <div class="summary-row text-muted">
+        <span style="padding-left:14px">— Purchase Returns</span>
+        <span>− ₹{{ "%.2f"|format(purchase_returns) }}</span>
       </div>
       <div class="summary-row text-muted">
         <span style="padding-left:14px">— Bills</span>
         <span>{{ purchases.cnt }}</span>
       </div>
-      <div class="summary-row">
-        <span>Operating Expenses</span>
-        <span class="text-danger">₹{{ "%.2f"|format(exp_total) }}</span>
-      </div>
-      {% for cat in exp_by_cat %}
-      <div class="summary-row text-muted">
-        <span style="padding-left:14px">— {{ cat.category }}</span>
-        <span>₹{{ "%.2f"|format(cat.total) }}</span>
-      </div>
-      {% endfor %}
       <hr>
       <div class="summary-row total-row" style="color:var(--danger)">
-        <span>TOTAL COSTS</span>
-        <span>₹{{ "%.2f"|format(purchases.total + exp_total) }}</span>
+        <span>COGS</span>
+        <span>₹{{ "%.2f"|format(cogs) }}</span>
       </div>
+      <p class="text-muted small" style="margin:8px 0 0">
+        Purchases and COGS are shown separately on purpose — see the
+        Profit &amp; Loss Statement below for why they're not the same
+        number.
+      </p>
     </div>
   </div>
 </div>
@@ -80,37 +87,103 @@
   <div class="card-body">
     <div class="kpi-row">
       <div class="kpi-card green"><div class="kpi-body">
-        <div class="kpi-value">₹{{ "%.2f"|format(sales.total) }}</div>
-        <div class="kpi-label">Total Sales</div>
+        <div class="kpi-value">₹{{ "%.2f"|format(net_sales) }}</div>
+        <div class="kpi-label">Net Sales</div>
       </div></div>
       <div class="kpi-card red"><div class="kpi-body">
-        <div class="kpi-value">₹{{ "%.2f"|format(purchases.total) }}</div>
-        <div class="kpi-label">(-) Purchases</div>
+        <div class="kpi-value">₹{{ "%.2f"|format(cogs) }}</div>
+        <div class="kpi-label">(-) COGS</div>
       </div></div>
       <div class="kpi-card teal"><div class="kpi-body">
         <div class="kpi-value">₹{{ "%.2f"|format(gross_profit) }}</div>
-        <div class="kpi-label">= Gross Profit</div>
+        <div class="kpi-label">= Gross Profit ({{ "%.1f"|format(gross_margin) }}%)</div>
       </div></div>
       <div class="kpi-card red"><div class="kpi-body">
         <div class="kpi-value">₹{{ "%.2f"|format(exp_total) }}</div>
-        <div class="kpi-label">(-) Expenses</div>
+        <div class="kpi-label">(-) Operating Expenses</div>
       </div></div>
       <div class="kpi-card {% if net_profit>=0 %}purple{% else %}red{% endif %}" style="border-width:3px">
         <div class="kpi-body">
           <div class="kpi-value" style="font-size:1.4rem">₹{{ "%.2f"|format(net_profit) }}</div>
-          <div class="kpi-label">= NET PROFIT</div>
+          <div class="kpi-label">= NET PROFIT ({{ "%.1f"|format(net_margin) }}%)</div>
           <div class="kpi-sub">{{ '✅ Profitable' if net_profit>=0 else '❌ Loss' }}</div>
         </div>
       </div>
     </div>
 
     <div style="text-align:center;margin-top:10px;font-size:.85rem;color:var(--text-muted)">
-      <strong>Formula:</strong>
-      Net Profit = Sales (₹{{ "%.0f"|format(sales.total) }}) − Purchases (₹{{ "%.0f"|format(purchases.total) }}) − Expenses (₹{{ "%.0f"|format(exp_total) }}) =
+      <strong>Gross Profit</strong> = Net Sales (₹{{ "%.0f"|format(net_sales) }}) − COGS (₹{{ "%.0f"|format(cogs) }}) =
+      ₹{{ "%.0f"|format(gross_profit) }} &nbsp;•&nbsp;
+      <strong>Net Profit</strong> = Gross Profit − Operating Expenses (₹{{ "%.0f"|format(exp_total) }}) + Other Income (₹{{ "%.0f"|format(other_income) }}) − Other Expenses (₹{{ "%.0f"|format(other_expense) }}) =
       <strong class="{{ 'text-success' if net_profit>=0 else 'text-danger' }}">₹{{ "%.2f"|format(net_profit) }}</strong>
     </div>
   </div>
 </div>
+
+<div class="card">
+  <div class="card-header"><h3>📄 Profit &amp; Loss Statement</h3></div>
+  <div class="card-body p-0">
+    <table class="table">
+      <tbody>
+        <tr><td colspan="2"><strong>Sales</strong></td></tr>
+        <tr><td class="text-muted">&nbsp;&nbsp;Gross Sales</td><td style="text-align:right">₹{{ "%.2f"|format(sales.total) }}</td></tr>
+        <tr><td class="text-muted">&nbsp;&nbsp;Less: Sales Returns</td><td style="text-align:right">− ₹{{ "%.2f"|format(sales_returns) }}</td></tr>
+        <tr style="border-top:1px solid var(--border)"><td><strong>Net Sales</strong></td><td style="text-align:right"><strong>₹{{ "%.2f"|format(net_sales) }}</strong></td></tr>
+
+        <tr><td colspan="2" style="padding-top:14px"><strong>Cost of Goods Sold</strong></td></tr>
+        <tr><td class="text-muted">&nbsp;&nbsp;Opening Stock <span class="text-muted small">(derived — see note below)</span></td><td style="text-align:right">₹{{ "%.2f"|format(opening_stock) }}</td></tr>
+        <tr><td class="text-muted">&nbsp;&nbsp;Purchases</td><td style="text-align:right">+ ₹{{ "%.2f"|format(purchases.total) }}</td></tr>
+        <tr><td class="text-muted">&nbsp;&nbsp;Less: Purchase Returns</td><td style="text-align:right">− ₹{{ "%.2f"|format(purchase_returns) }}</td></tr>
+        <tr><td class="text-muted">&nbsp;&nbsp;Less: Closing Stock <span class="text-muted small">(current valuation)</span></td><td style="text-align:right">− ₹{{ "%.2f"|format(closing_stock) }}</td></tr>
+        <tr style="border-top:1px solid var(--border)"><td><strong>COGS</strong></td><td style="text-align:right"><strong>₹{{ "%.2f"|format(cogs) }}</strong></td></tr>
+
+        <tr style="border-top:2px solid var(--border)"><td><strong>Gross Profit</strong></td><td style="text-align:right"><strong class="{{ 'text-success' if gross_profit>=0 else 'text-danger' }}">₹{{ "%.2f"|format(gross_profit) }}</strong></td></tr>
+        <tr><td class="text-muted">&nbsp;&nbsp;Gross Profit %</td><td style="text-align:right">{{ "%.1f"|format(gross_margin) }}%</td></tr>
+
+        <tr><td colspan="2" style="padding-top:14px"><strong>Operating Expenses</strong></td></tr>
+        {% for cat in exp_by_cat %}
+        <tr><td class="text-muted">&nbsp;&nbsp;{{ cat.category }}</td><td style="text-align:right">₹{{ "%.2f"|format(cat.total) }}</td></tr>
+        {% else %}
+        <tr><td class="text-muted">&nbsp;&nbsp;No expenses recorded this period</td><td style="text-align:right">₹0.00</td></tr>
+        {% endfor %}
+        <tr style="border-top:1px solid var(--border)"><td>&nbsp;&nbsp;Total Operating Expenses</td><td style="text-align:right">₹{{ "%.2f"|format(exp_total) }}</td></tr>
+
+        <tr><td colspan="2" style="padding-top:14px"><strong>Other Income / Expenses</strong></td></tr>
+        <tr><td class="text-muted">&nbsp;&nbsp;Other Income</td><td style="text-align:right">+ ₹{{ "%.2f"|format(other_income) }}</td></tr>
+        <tr><td class="text-muted">&nbsp;&nbsp;Other Expenses</td><td style="text-align:right">− ₹{{ "%.2f"|format(other_expense) }}</td></tr>
+
+        <tr style="border-top:2px solid var(--border)"><td><strong>NET PROFIT</strong></td>
+          <td style="text-align:right"><strong class="{{ 'text-success' if net_profit>=0 else 'text-danger' }}">₹{{ "%.2f"|format(net_profit) }}</strong></td></tr>
+        <tr><td class="text-muted">&nbsp;&nbsp;Net Profit %</td><td style="text-align:right">{{ "%.1f"|format(net_margin) }}%</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3>🧾 GST (informational — not part of profit calculation)</h3></div>
+  <div class="card-body">
+    <div class="form-row-2">
+      <div>GST on Sales (Output GST)<br><strong>₹{{ "%.2f"|format(sales.tax) }}</strong></div>
+      <div>GST on Purchases (Input GST)<br><strong>₹{{ "%.2f"|format(purchases.tax) }}</strong></div>
+    </div>
+    <p class="text-muted small mb-0" style="margin-top:10px">
+      GST collected and paid is a pass-through liability to the government, not
+      business income or expense — shown here for reference only and excluded
+      from every profit figure above.
+    </p>
+  </div>
+</div>
+
+<p class="text-muted small">
+  <strong>Note on Opening/Closing Stock:</strong> the app doesn't keep a
+  day-by-day stock ledger, so Closing Stock is today's current inventory
+  valuation (quantity × cost price, same method as the Inventory report), and
+  Opening Stock is derived from it using the standard identity
+  (COGS = Opening Stock + Purchases − Closing Stock) rather than a true
+  historical snapshot. Accurate for the current period; an approximation for
+  past ones.
+</p>
 
 <div class="card">
   <div class="card-header"><h3>📊 Sales vs Purchases Trend (Last 12 Months)</h3></div>

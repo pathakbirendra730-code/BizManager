@@ -50,6 +50,7 @@ STANDARD_ACCOUNTS = [
     ("5100", "Purchases",                   "expense",   "cogs"),
     ("5200", "Discounts Given",             "expense",   "discount_given"),
     ("5300", "Sales Returns & Allowances",  "expense",   "returns_expense"),
+    ("5850", "Other Expenses",              "expense",   "other_expense"),
     ("5900", "Operating Expenses",          "expense",   "operating_expense"),
 ]
 

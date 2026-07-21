@@ -152,6 +152,7 @@ CONTRA_SUBTYPES = [
     ("cogs",              "Purchases / COGS"),
     ("discount_given",    "Discount Given"),
     ("other_income",      "Other Income"),
+    ("other_expense",     "Other Expense"),
     ("operating_expense", "Operating Expense"),
     ("cash",              "Cash"),
     ("bank",               "Bank Account"),
@@ -405,6 +406,8 @@ def add_cash_entry():
 
     from utils.ledger_transactions import record_adjustment
     from utils.ledger_service import InvalidLineError
+    from utils.chart_of_accounts import seed_chart_of_accounts
+    seed_chart_of_accounts(biz_id)  # idempotent — adds only whatever's missing (e.g. Update_026's Other Expenses)
     user_id = session.get("saas_user_id")
     try:
         if txn_type == "receipt":
@@ -500,6 +503,8 @@ def add_bank_entry():
 
     from utils.ledger_transactions import record_adjustment
     from utils.ledger_service import InvalidLineError
+    from utils.chart_of_accounts import seed_chart_of_accounts
+    seed_chart_of_accounts(biz_id)  # idempotent — adds only whatever's missing (e.g. Update_026's Other Expenses)
     user_id = session.get("saas_user_id")
     try:
         if txn_type == "credit":
@@ -550,9 +555,13 @@ def profit_loss():
     if year_mode == "yearly":
         date_filter = _year_filter("created_at") + f" = '{month[:4]}'"
         exp_filter  = _year_filter("expense_date") + f" = '{month[:4]}'"
+        inv_filter  = _year_filter("i.created_at") + f" = '{month[:4]}'"
+        je_filter   = _year_filter("je.entry_date") + f" = '{month[:4]}'"
     else:
         date_filter = _month_filter("created_at") + f" = '{month}'"
         exp_filter  = _month_filter("expense_date") + f" = '{month}'"
+        inv_filter  = _month_filter("i.created_at") + f" = '{month}'"
+        je_filter   = _month_filter("je.entry_date") + f" = '{month}'"
 
     sales = saas_fetchone(
         f"""SELECT COALESCE(SUM(total),0) as total, COALESCE(SUM(taxable_amount),0) as taxable,
@@ -578,6 +587,106 @@ def profit_loss():
         (biz_id,)
     )
 
+    # ── Update_026: COGS — same join/filter shape as finance.py's dashboard ──
+    # (quantity actually sold this period × each product's cost_price), so
+    # this page and the Finance Dashboard can never compute a different
+    # number for the same period. See CHANGELOG_Update_026.md §2 for the
+    # verification that proves this.
+    cogs_row = saas_fetchone(
+        f"""SELECT COALESCE(SUM(ii.quantity * pr.cost_price), 0) as cogs
+            FROM saas_invoice_items ii
+            JOIN saas_invoices i ON i.id = ii.invoice_id
+            JOIN saas_products pr ON pr.id = ii.product_id
+            WHERE ii.business_id={p} AND {inv_filter}
+              AND i.status IN ('paid','partial')""",
+        (biz_id,)
+    )
+    cogs = round(float(cogs_row["cogs"] or 0), 2)
+
+    # ── Sales Returns ──
+    # returns_expense is a real, dedicated account (seeded for every
+    # business) but no route in the app currently posts to it —
+    # record_sales_return() exists in the ledger engine and is fully
+    # correct, but is unreachable (confirmed dead code, Update_024/025).
+    # This always reports 0 today; queried for real so it's correct the
+    # moment that feature exists, rather than a fixed placeholder.
+    sales_returns_row = saas_fetchone(
+        f"""SELECT COALESCE(SUM(jl.debit - jl.credit),0) as t
+            FROM saas_journal_lines jl
+            JOIN saas_journal_entries je ON je.id = jl.entry_id
+            JOIN saas_chart_of_accounts coa ON coa.id = jl.account_id
+            WHERE jl.business_id={p} AND coa.account_subtype='returns_expense'
+              AND je.status='posted' AND {je_filter}""",
+        (biz_id,)
+    )
+    sales_returns = round(max(0.0, float(sales_returns_row["t"] or 0)), 2)
+
+    # ── Purchase Returns ──
+    # Genuinely no data source at all, even in principle: record_purchase_
+    # return() (also dead code — no route calls it) posts its reversal
+    # straight into the same "cogs" account regular purchases use, by
+    # design (see its docstring), so even if it were wired up there'd be
+    # no way to separate returns from regular purchases in that account
+    # without a schema change. Hardcoded 0 rather than a query that would
+    # look real but can never mean anything — see CHANGELOG §2 for detail.
+    purchase_returns = 0.0
+
+    # ── Other Income / Other Expenses ──
+    # Real, postable accounts (Accounts → Cash Book/Bank Book "Add Entry"
+    # forms already support "Other Income"; "Other Expense" is new in this
+    # update — see utils/chart_of_accounts.py and CONTRA_SUBTYPES below).
+    other_income_row = saas_fetchone(
+        f"""SELECT COALESCE(SUM(jl.credit - jl.debit),0) as t
+            FROM saas_journal_lines jl
+            JOIN saas_journal_entries je ON je.id = jl.entry_id
+            JOIN saas_chart_of_accounts coa ON coa.id = jl.account_id
+            WHERE jl.business_id={p} AND coa.account_subtype='other_income'
+              AND je.status='posted' AND {je_filter}""",
+        (biz_id,)
+    )
+    other_income = round(max(0.0, float(other_income_row["t"] or 0)), 2)
+
+    other_expense_row = saas_fetchone(
+        f"""SELECT COALESCE(SUM(jl.debit - jl.credit),0) as t
+            FROM saas_journal_lines jl
+            JOIN saas_journal_entries je ON je.id = jl.entry_id
+            JOIN saas_chart_of_accounts coa ON coa.id = jl.account_id
+            WHERE jl.business_id={p} AND coa.account_subtype='other_expense'
+              AND je.status='posted' AND {je_filter}""",
+        (biz_id,)
+    )
+    other_expense = round(max(0.0, float(other_expense_row["t"] or 0)), 2)
+
+    # ── Closing / Opening Stock ──
+    # Closing Stock reuses the exact valuation method already used by the
+    # Inventory report (reports.py): current stock_quantity × cost_price
+    # per product, summed. This is a CURRENT valuation, not a historical
+    # snapshot as of the selected period's end — the app has no daily
+    # stock ledger to reconstruct a true historical figure. For the
+    # current period this is accurate; for a past period it's an
+    # approximation. Labeled as such in the template.
+    closing_stock_row = saas_fetchone(
+        f"""SELECT COALESCE(SUM(stock_quantity * cost_price),0) as t
+            FROM saas_products WHERE business_id={p} AND is_active=TRUE""",
+        (biz_id,)
+    )
+    closing_stock = round(float(closing_stock_row["t"] or 0), 2)
+
+    # Opening Stock is derived from the standard accounting identity
+    # (COGS = Opening Stock + Purchases − Closing Stock), rearranged, using
+    # the real COGS and Purchases figures above and the current closing
+    # stock valuation. This is a legitimate accounting derivation, not a
+    # fabricated number — but it inherits the same "current valuation, not
+    # historical" caveat as Closing Stock above. Floored at 0 (a negative
+    # opening stock isn't meaningful).
+    opening_stock = round(max(0.0, cogs - float(purchases["total"]) + closing_stock), 2)
+
+    net_sales      = round(float(sales["total"]) - sales_returns, 2)
+    gross_profit   = round(net_sales - cogs, 2)
+    net_profit     = round(gross_profit - float(exp_total["total"]) + other_income - other_expense, 2)
+    gross_margin   = round((gross_profit / net_sales * 100), 2) if net_sales else 0.0
+    net_margin     = round((net_profit  / net_sales * 100), 2) if net_sales else 0.0
+
     mf = _month_filter("created_at")
     trend = saas_fetchall(
         f"""SELECT {mf} as mon, COALESCE(SUM(total),0) as sales
@@ -592,9 +701,6 @@ def profit_loss():
         (biz_id,)
     )
 
-    gross_profit = round(sales["total"] - purchases["total"], 2)
-    net_profit   = round(gross_profit - exp_total["total"], 2)
-
     trend_map  = {r["mon"]: r["sales"] for r in trend}
     pur_map    = {r["mon"]: r["purchases"] for r in purchase_trend}
     all_months = sorted(set(list(trend_map.keys()) + list(pur_map.keys())), reverse=True)[:12]
@@ -606,5 +712,11 @@ def profit_loss():
     return render_template("saas_business/accounts/profit_loss.html",
         biz=biz, month=month, year_mode=year_mode,
         sales=sales, purchases=purchases,
-        exp_total=round(exp_total["total"], 2), exp_by_cat=exp_by_cat,
-        gross_profit=gross_profit, net_profit=net_profit, chart_data=chart_data)
+        exp_total=round(float(exp_total["total"]), 2), exp_by_cat=exp_by_cat,
+        cogs=cogs, net_sales=net_sales,
+        sales_returns=sales_returns, purchase_returns=purchase_returns,
+        other_income=other_income, other_expense=other_expense,
+        opening_stock=opening_stock, closing_stock=closing_stock,
+        gross_profit=gross_profit, net_profit=net_profit,
+        gross_margin=gross_margin, net_margin=net_margin,
+        chart_data=chart_data)
