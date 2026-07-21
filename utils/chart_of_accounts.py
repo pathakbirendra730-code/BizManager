@@ -150,14 +150,31 @@ def get_or_create_party_account(business_id: int, party_type: str, party_id: int
     # 2000 become 2000-<party_id>. Guaranteed unique since party_id is.
     code = f"{control_acct['code']}-{party_id}"
 
-    acct_id = saas_execute(
-        f"""INSERT INTO saas_chart_of_accounts
-            (business_id, code, name, account_type, account_subtype,
-             parent_id, party_type, party_id, is_system)
-            VALUES ({p},{p},{p},{p},{p},{p},{p},{p},TRUE)""",
-        (business_id, code, party_name, acct_type, control_subtype,
-         control_acct["id"], party_type, party_id)
-    )
+    try:
+        acct_id = saas_execute(
+            f"""INSERT INTO saas_chart_of_accounts
+                (business_id, code, name, account_type, account_subtype,
+                 parent_id, party_type, party_id, is_system)
+                VALUES ({p},{p},{p},{p},{p},{p},{p},{p},TRUE)""",
+            (business_id, code, party_name, acct_type, control_subtype,
+             control_acct["id"], party_type, party_id)
+        )
+    except Exception as e:
+        # Update_025 fix: another concurrent request created this exact
+        # party's account between our existence check above and this
+        # INSERT (confirmed reproducible under concurrent load — see
+        # CHANGELOG_Update_025.md). Whoever won, the row we wanted now
+        # exists — fetch and return it instead of failing the request.
+        if "unique" in str(e).lower():
+            winner = saas_fetchone(
+                f"""SELECT * FROM saas_chart_of_accounts
+                    WHERE business_id={p} AND party_type={p} AND party_id={p}""",
+                (business_id, party_type, party_id)
+            )
+            if winner:
+                return winner
+        raise
+
     return saas_fetchone(f"SELECT * FROM saas_chart_of_accounts WHERE id={p}", (acct_id,))
 
 

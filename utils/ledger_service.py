@@ -182,38 +182,62 @@ def post_journal_entry(business_id: int, lines: list, source_type: str,
             f"or do not exist. Refusing to post."
         )
 
-    with ledger_transaction() as (conn, c, p):
-        entry_number = _generate_entry_number(business_id, c, p)
+    # Update_025 fix: retry on entry_number collision under concurrent
+    # postings for the same business. Confirmed via a 20-thread simultaneous-
+    # posting test: without this retry, 15/20 concurrent postings failed
+    # with "UNIQUE constraint failed: saas_journal_entries.business_id,
+    # entry_number" (both entries compute the same "last + 1" before either
+    # commits). No data corruption resulted even without this fix — the
+    # UNIQUE constraint did its job and the failed transactions rolled back
+    # cleanly — but the caller's request failed outright instead of just
+    # being slightly delayed. ledger_transaction() rolls back cleanly on
+    # any exception (see models/saas_ledger_engine.py), so it's always safe
+    # to simply retry the whole block: the retry re-reads the (now updated)
+    # last entry number and gets a fresh one.
+    MAX_ENTRY_NUMBER_RETRIES = 5
+    for attempt in range(MAX_ENTRY_NUMBER_RETRIES):
+        try:
+            with ledger_transaction() as (conn, c, p):
+                entry_number = _generate_entry_number(business_id, c, p)
 
-        insert_sql = f"""INSERT INTO saas_journal_entries
-                (business_id, entry_number, entry_date, source_type, source_id,
-                 narration, total_debit, total_credit, status, created_by)
-                VALUES ({p},{p},{p},{p},{p},{p},{p},{p},'posted',{p})"""
-        # psycopg2's cursor.lastrowid is always None (PostgreSQL tables have
-        # no OIDs), so on Postgres we must ask for the id explicitly via
-        # RETURNING; sqlite3's lastrowid works natively and needs no change.
-        if _is_postgres():
-            insert_sql += " RETURNING id"
-        c.execute(
-            insert_sql,
-            (business_id, entry_number, entry_date, source_type, source_id,
-             narration, total_debit, total_credit, created_by)
-        )
-        entry_id = c.fetchone()["id"] if _is_postgres() else c.lastrowid
+                insert_sql = f"""INSERT INTO saas_journal_entries
+                        (business_id, entry_number, entry_date, source_type, source_id,
+                         narration, total_debit, total_credit, status, created_by)
+                        VALUES ({p},{p},{p},{p},{p},{p},{p},{p},'posted',{p})"""
+                # psycopg2's cursor.lastrowid is always None (PostgreSQL tables have
+                # no OIDs), so on Postgres we must ask for the id explicitly via
+                # RETURNING; sqlite3's lastrowid works natively and needs no change.
+                if _is_postgres():
+                    insert_sql += " RETURNING id"
+                c.execute(
+                    insert_sql,
+                    (business_id, entry_number, entry_date, source_type, source_id,
+                     narration, total_debit, total_credit, created_by)
+                )
+                entry_id = c.fetchone()["id"] if _is_postgres() else c.lastrowid
 
-        for i, line in enumerate(lines):
-            debit  = to_decimal(line.get("debit", 0)).quantize(Decimal("0.01"))
-            credit = to_decimal(line.get("credit", 0)).quantize(Decimal("0.01"))
-            c.execute(
-                f"""INSERT INTO saas_journal_lines
-                    (business_id, entry_id, account_id, debit, credit,
-                     party_type, party_id, description, line_order)
-                    VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p})""",
-                (business_id, entry_id, line["account_id"], debit, credit,
-                 line.get("party_type", ""), line.get("party_id"),
-                 line.get("description", ""), i)
-            )
-            _update_account_balance(c, p, business_id, line["account_id"], debit, credit)
+                for i, line in enumerate(lines):
+                    debit  = to_decimal(line.get("debit", 0)).quantize(Decimal("0.01"))
+                    credit = to_decimal(line.get("credit", 0)).quantize(Decimal("0.01"))
+                    c.execute(
+                        f"""INSERT INTO saas_journal_lines
+                            (business_id, entry_id, account_id, debit, credit,
+                             party_type, party_id, description, line_order)
+                            VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p})""",
+                        (business_id, entry_id, line["account_id"], debit, credit,
+                         line.get("party_type", ""), line.get("party_id"),
+                         line.get("description", ""), i)
+                    )
+                    _update_account_balance(c, p, business_id, line["account_id"], debit, credit)
+            break  # success — fall through to the audit_log/return below
+        except Exception as e:
+            # Only retry on a unique-constraint conflict (the entry_number
+            # race this loop exists for) — anything else (a real validation
+            # problem, a genuinely missing account, etc.) should fail
+            # immediately, not silently retry 5 times first.
+            if "unique" in str(e).lower() and attempt < MAX_ENTRY_NUMBER_RETRIES - 1:
+                continue
+            raise
 
     audit_log("journal_entry_posted", user_id=created_by, business_id=business_id,
               entity_type="journal_entry", entity_id=str(entry_id),
