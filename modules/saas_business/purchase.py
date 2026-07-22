@@ -40,22 +40,17 @@ def _purchase_status(total: float, paid: float) -> str:
 
 
 def _generate_purchase_number(biz_id: int) -> str:
-    """Auto-generate next sequential purchase number, scoped per business."""
-    p = P()
-    last = saas_fetchone(
-        f"SELECT purchase_number FROM saas_purchases WHERE business_id={p} "
-        f"ORDER BY id DESC LIMIT 1",
-        (biz_id,)
-    )
-    if last:
-        parts = last["purchase_number"].split("-")
-        try:
-            seq = int(parts[-1]) + 1
-        except ValueError:
-            seq = 1001
-    else:
-        seq = 1001
-    return f"PUR-{seq}"
+    """
+    PREVIEW ONLY — see billing.py::_generate_invoice_number for the full
+    explanation of why this doesn't consume a sequence number itself.
+    """
+    from utils.document_numbering import current_sequence_position, financial_year_for_date
+    from utils.platform_settings import get_setting
+    from datetime import date
+    fy = financial_year_for_date(date.today())
+    prefix = get_setting("prefix_purchase_bill").strip() or "PB"
+    next_seq = current_sequence_position(biz_id, "purchase_bill", fy) + 1
+    return f"{prefix}/{fy}/{next_seq:06d}"
 
 
 # ════════════════════════════════ NEW PURCHASE FORM ════════════════════════════
@@ -153,20 +148,24 @@ def save():
         due         = round(total - paid_amount, 2)
         status      = _purchase_status(total, paid_amount)
 
-        pur_number = _generate_purchase_number(biz_id)
+        from utils.document_numbering import generate_document_number
         user_id    = session.get("saas_user_id")
+        doc = generate_document_number(biz_id, "purchase_bill", bill_date)
+        pur_number = doc["formatted"]
 
         pur_id = saas_execute(
             f"""INSERT INTO saas_purchases
-                (business_id, purchase_number, supplier_id, supplier_name,
+                (business_id, purchase_number, doc_prefix, doc_fy, doc_sequence,
+                 supplier_id, supplier_name,
                  supplier_gstin, bill_number, bill_date,
                  subtotal, discount, discount_pct, taxable_amount,
                  cgst_amount, sgst_amount, igst_amount, total_tax, total,
                  paid_amount, due_amount, payment_method, supply_type,
                  notes, status, created_by)
                 VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},
-                        {p},{p},{p},{p},{p},{p},{p})""",
-            (biz_id, pur_number, supplier_id, supplier_name,
+                        {p},{p},{p},{p},{p},{p},{p},{p},{p},{p})""",
+            (biz_id, pur_number, doc["prefix"], doc["financial_year"], doc["sequence"],
+             supplier_id, supplier_name,
              sup_gstin, bill_number, bill_date,
              subtotal, disc_amt, disc_pct, taxable,
              cgst_tot, sgst_tot, igst_tot, total_tax, total,

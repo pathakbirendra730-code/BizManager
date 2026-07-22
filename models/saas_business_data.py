@@ -10,7 +10,7 @@ This is a parallel schema to models/database.py — it does NOT touch
 or migrate the legacy shop/users data. SaaS businesses get their own
 fully isolated operational tables from day one.
 
-Tables (14):
+Tables (15):
   saas_categories       — product categories, per business
   saas_products         — inventory items, per business
   saas_customers         — customer master, per business
@@ -25,6 +25,7 @@ Tables (14):
   saas_cash_book         — cash receipts/payments register
   saas_bank_book         — bank account register
   saas_emi_history        — EMI/loan calculator saved results, scoped per user
+  saas_document_sequences — FY-based document numbering counters (Update_027)
 
 HSN master (hsn_master) remains global/shared — it's reference data,
 not tenant data, so the existing legacy table is reused as-is via a
@@ -425,6 +426,37 @@ def _init_sqlite(c):
     for idx in indexes:
         c.execute(idx)
 
+    # ── saas_document_sequences ─────────────────────────────────────────────────
+    # Update_027: one row per (business, document type, financial year) —
+    # the ONLY thing that gets written when a document number is generated.
+    # See utils/document_numbering.py for how prefix/FY/sequence combine
+    # into the displayed number; nothing here stores the formatted string.
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_document_sequences (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        business_id    INTEGER NOT NULL REFERENCES saas_businesses(id) ON DELETE CASCADE,
+        document_type  TEXT    NOT NULL,
+        financial_year TEXT    NOT NULL,
+        last_sequence  INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(business_id, document_type, financial_year)
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_docseq_biz ON saas_document_sequences(business_id)")
+
+    # Update_027: add the new document-number component columns to the two
+    # existing document tables that already have live creation routes
+    # (Sales Invoice, Purchase Bill). Existing rows are left exactly as they
+    # are (all three columns default to NULL for them) — only new inserts
+    # populate these; invoice_number/purchase_number keep working exactly
+    # as before for every existing row and every existing query.
+    existing_inv_cols = {row[1] for row in c.execute("PRAGMA table_info(saas_invoices)").fetchall()}
+    for col, defn in [("doc_prefix", "TEXT"), ("doc_fy", "TEXT"), ("doc_sequence", "INTEGER")]:
+        if col not in existing_inv_cols:
+            c.execute(f"ALTER TABLE saas_invoices ADD COLUMN {col} {defn}")
+
+    existing_pur_cols = {row[1] for row in c.execute("PRAGMA table_info(saas_purchases)").fetchall()}
+    for col, defn in [("doc_prefix", "TEXT"), ("doc_fy", "TEXT"), ("doc_sequence", "INTEGER")]:
+        if col not in existing_pur_cols:
+            c.execute(f"ALTER TABLE saas_purchases ADD COLUMN {col} {defn}")
+
     # ── hsn_master — shared GST reference table (global, not tenant-scoped) ────
     # This is the one table from the old models/database.py legacy schema that's
     # still genuinely read by live features (Products, GST). Ported here so it
@@ -711,6 +743,25 @@ def _init_postgres(c):
     ]
     for idx in indexes:
         c.execute(idx)
+
+    # ── saas_document_sequences ─────────────────────────────────────────────────
+    # Update_027: Postgres equivalent of the SQLite version above.
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_document_sequences (
+        id             SERIAL PRIMARY KEY,
+        business_id    INTEGER NOT NULL REFERENCES saas_businesses(id) ON DELETE CASCADE,
+        document_type  VARCHAR(30) NOT NULL,
+        financial_year VARCHAR(10) NOT NULL,
+        last_sequence  INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(business_id, document_type, financial_year)
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_docseq_biz ON saas_document_sequences(business_id)")
+
+    # Update_027: same column additions as the SQLite branch — Postgres has
+    # native IF NOT EXISTS support for ADD COLUMN, so no PRAGMA-style check
+    # is needed here.
+    for col, defn in [("doc_prefix", "VARCHAR(10)"), ("doc_fy", "VARCHAR(10)"), ("doc_sequence", "INTEGER")]:
+        c.execute(f"ALTER TABLE saas_invoices ADD COLUMN IF NOT EXISTS {col} {defn}")
+        c.execute(f"ALTER TABLE saas_purchases ADD COLUMN IF NOT EXISTS {col} {defn}")
 
     # ── hsn_master — shared GST reference table (global, not tenant-scoped) ────
     # Postgres equivalent of the SQLite version above — see that one's comment.

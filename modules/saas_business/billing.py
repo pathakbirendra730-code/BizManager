@@ -38,25 +38,21 @@ def _invoice_status(total: float, paid: float) -> str:
 
 def _generate_invoice_number(biz_id: int) -> str:
     """
-    Auto-generate next sequential invoice number for this business.
-    Format: INV-<4-digit-seq>, scoped per business (each business starts
-    its own sequence at 1001, independent of every other tenant).
+    PREVIEW ONLY — shows what the next invoice number will look like on the
+    POS screen, without consuming it. Uses the same FY-based format as the
+    real one (Update_027: PREFIX/FY/000001), but reads the current position
+    rather than incrementing it, so just opening the POS page (or leaving
+    it open, or navigating away without completing a sale) can never skip
+    a number. The actual, sequence-consuming number is generated in
+    save_invoice() at the moment an invoice is actually saved.
     """
-    p = P()
-    last = saas_fetchone(
-        f"SELECT invoice_number FROM saas_invoices WHERE business_id={p} "
-        f"ORDER BY id DESC LIMIT 1",
-        (biz_id,)
-    )
-    if last:
-        parts = last["invoice_number"].split("-")
-        try:
-            seq = int(parts[-1]) + 1
-        except ValueError:
-            seq = 1001
-    else:
-        seq = 1001
-    return f"INV-{seq}"
+    from utils.document_numbering import current_sequence_position, financial_year_for_date
+    from utils.platform_settings import get_setting
+    from datetime import date
+    fy = financial_year_for_date(date.today())
+    prefix = get_setting("prefix_sales_invoice").strip() or "INV"
+    next_seq = current_sequence_position(biz_id, "sales_invoice", fy) + 1
+    return f"{prefix}/{fy}/{next_seq:06d}"
 
 
 # ════════════════════════════════ POS ═════════════════════════════════════════
@@ -172,21 +168,25 @@ def save_invoice():
         due_amount  = round(grand_tot - paid_amount, 2)
         status      = _invoice_status(grand_tot, paid_amount)
 
-        inv_number = _generate_invoice_number(biz_id)
+        from utils.document_numbering import generate_document_number
         user_id    = session.get("saas_user_id")
         today      = datetime.utcnow().date().isoformat()
+        doc = generate_document_number(biz_id, "sales_invoice", today)
+        inv_number = doc["formatted"]
 
         inv_id = saas_execute(
             f"""INSERT INTO saas_invoices
-                (business_id, invoice_number, customer_id, customer_name,
+                (business_id, invoice_number, doc_prefix, doc_fy, doc_sequence,
+                 customer_id, customer_name,
                  customer_gstin, customer_state, supply_type,
                  subtotal, discount, discount_pct, taxable_amount,
                  cgst_amount, sgst_amount, igst_amount, total_tax, total,
                  paid_amount, due_amount, payment_method, place_of_supply,
                  notes, status, created_by)
                 VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},
-                        {p},{p},{p},{p},{p},{p},{p})""",
-            (biz_id, inv_number, customer_id, customer_name,
+                        {p},{p},{p},{p},{p},{p},{p},{p},{p},{p})""",
+            (biz_id, inv_number, doc["prefix"], doc["financial_year"], doc["sequence"],
+             customer_id, customer_name,
              cust_gstin, cust_state, supply_type,
              subtotal, disc_amt, disc_pct, taxable_tot,
              cgst_tot, sgst_tot, igst_tot, total_tax, grand_tot,

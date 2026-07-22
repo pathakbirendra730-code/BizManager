@@ -276,6 +276,46 @@ SETTINGS_SCHEMA = [
         "default": lambda: _env_default("OTP_LENGTH", "6"),
         "validate": _validate_int_range(4, 8),
     },
+    # ── Update_027: Document Numbering ──────────────────────────────────────
+    # These prefixes combine with a financial-year and a per-business,
+    # per-document-type running sequence to form the actual document
+    # number (e.g. INV/2026-27/000001) — see utils/document_numbering.py.
+    # Changing a prefix here only affects documents created AFTER the
+    # change; it never renumbers or reformats anything already issued.
+    {
+        "key": "prefix_sales_invoice", "label": "Sales Invoice Prefix", "type": "text",
+        "default": lambda: _env_default("DOC_PREFIX_SALES_INVOICE", "INV"),
+        "validate": _validate_max_len(10), "group": "Document Numbering",
+    },
+    {
+        "key": "prefix_purchase_bill", "label": "Purchase Bill Prefix", "type": "text",
+        "default": lambda: _env_default("DOC_PREFIX_PURCHASE_BILL", "PB"),
+        "validate": _validate_max_len(10), "group": "Document Numbering",
+    },
+    {
+        "key": "prefix_credit_note", "label": "Credit Note Prefix", "type": "text",
+        "default": lambda: _env_default("DOC_PREFIX_CREDIT_NOTE", "CN"),
+        "validate": _validate_max_len(10), "group": "Document Numbering",
+        "help": "Reserved for when Credit Notes are supported — no document type in the app issues one yet.",
+    },
+    {
+        "key": "prefix_debit_note", "label": "Debit Note Prefix", "type": "text",
+        "default": lambda: _env_default("DOC_PREFIX_DEBIT_NOTE", "DN"),
+        "validate": _validate_max_len(10), "group": "Document Numbering",
+        "help": "Reserved for when Debit Notes are supported — no document type in the app issues one yet.",
+    },
+    {
+        "key": "prefix_quotation", "label": "Quotation Prefix", "type": "text",
+        "default": lambda: _env_default("DOC_PREFIX_QUOTATION", "QT"),
+        "validate": _validate_max_len(10), "group": "Document Numbering",
+        "help": "Reserved for when Quotations are supported — no document type in the app issues one yet.",
+    },
+    {
+        "key": "prefix_delivery_challan", "label": "Delivery Challan Prefix", "type": "text",
+        "default": lambda: _env_default("DOC_PREFIX_DELIVERY_CHALLAN", "DC"),
+        "validate": _validate_max_len(10), "group": "Document Numbering",
+        "help": "Reserved for when Delivery Challans are supported — no document type in the app issues one yet.",
+    },
 ]
 
 _SCHEMA_BY_KEY = {s["key"]: s for s in SETTINGS_SCHEMA}
