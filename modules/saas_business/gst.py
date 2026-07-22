@@ -158,7 +158,7 @@ def hsn_summary():
 
     rows = saas_fetchall(
         f"""SELECT ii.hsn_code,
-                   ii.product_name as description,
+                   MAX(ii.product_name) as description,
                    SUM(ii.quantity) as total_qty,
                    COALESCE(SUM(ii.taxable_amount),0) as taxable,
                    ii.gst_rate,
@@ -228,7 +228,7 @@ def export_hsn():
     mf = _month_filter_clause("i.created_at")
 
     rows = saas_fetchall(
-        f"""SELECT ii.hsn_code, ii.product_name as description,
+        f"""SELECT ii.hsn_code, MAX(ii.product_name) as description,
                    SUM(ii.quantity) as qty, ii.gst_rate,
                    COALESCE(SUM(ii.taxable_amount),0) as taxable,
                    COALESCE(SUM(ii.cgst_amount),0) as cgst,

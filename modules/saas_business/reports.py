@@ -93,7 +93,7 @@ def sales():
     )
 
     top_products = saas_fetchall(
-        f"""SELECT ii.product_name, ii.hsn_code,
+        f"""SELECT ii.product_name, MAX(ii.hsn_code) as hsn_code,
                    SUM(ii.quantity) as qty, COALESCE(SUM(ii.taxable_amount),0) as revenue,
                    COALESCE(SUM(ii.cgst_amount+ii.sgst_amount+ii.igst_amount),0) as tax
             FROM saas_invoice_items ii
