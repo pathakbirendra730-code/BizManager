@@ -1433,8 +1433,96 @@ def business_settings():
         flash("Business settings updated successfully.", "success")
         return redirect(url_for("saas_auth.business_settings"))
 
+    from utils.business_settings import all_business_settings
+    from utils.document_numbering import financial_year_for_date
+    numbering_settings = all_business_settings(biz_id)
+    today = datetime.utcnow().date()
+
     return render_template("saas_auth/business_settings.html",
-                           biz=biz, states=states)
+                           biz=biz, states=states,
+                           numbering_settings=numbering_settings,
+                           is_owner=(role == "owner"),
+                           current_fy=financial_year_for_date(today),
+                           current_month=today.strftime("%Y-%m"))
+
+
+# ═══════════════════ DOCUMENT NUMBERING (business-owner override) ════════════
+
+@saas_auth_bp.route("/business-settings/numbering", methods=["POST"])
+@saas_business_required
+def document_numbering_settings():
+    """
+    Save this business's own Document Numbering overrides — separator,
+    suffix, starting number, digit length, auto reset, manual numbering,
+    and the six per-document-type prefixes. Owner only (a business's
+    numbering scheme affects every invoice/bill the whole team issues,
+    same restriction as PERMISSIONS["business_settings"] in
+    utils/saas_middleware.py). A business that saves nothing here simply
+    keeps inheriting the platform-wide App Admin default for every key —
+    see utils/business_settings.py for the override/fallback design.
+    """
+    role = session.get(SAAS_ROLE_KEY, "staff")
+    if role != "owner":
+        flash("Only the business owner can manage document numbering.", "danger")
+        return redirect(url_for("saas_auth.business_settings"))
+
+    if not validate_csrf(request.form.get("csrf_token")):
+        flash("Security error. Please try again.", "danger")
+        return redirect(url_for("saas_auth.business_settings"))
+
+    biz_id = session.get(SAAS_BIZ_KEY)
+    from utils.business_settings import BUSINESS_SETTINGS_SCHEMA, set_business_setting
+    user_id = session.get("saas_user_id")
+
+    errors = []
+    for schema in BUSINESS_SETTINGS_SCHEMA:
+        key = schema["key"]
+        if schema["type"] == "bool":
+            value = "true" if request.form.get(key) == "on" else "false"
+        else:
+            value = request.form.get(key, "").strip()
+            if schema.get("options") and value not in schema["options"]:
+                continue  # ignore tampered/invalid values, keep old one
+        try:
+            set_business_setting(biz_id, key, value, updated_by=user_id)
+        except ValueError as e:
+            errors.append(str(e))
+
+    if errors:
+        for e in errors:
+            flash(e, "danger")
+    else:
+        audit_log("document_numbering_settings_updated", business_id=biz_id,
+                  entity_type="business", entity_id=str(biz_id),
+                  detail=f"by_user={user_id}")
+        flash("Document numbering settings updated.", "success")
+
+    return redirect(url_for("saas_auth.business_settings"))
+
+
+@saas_auth_bp.route("/business-settings/numbering/reset", methods=["POST"])
+@saas_business_required
+def reset_document_numbering_settings():
+    """Clear all of this business's Document Numbering overrides, reverting
+    every key back to the platform-wide App Admin default. Owner only."""
+    role = session.get(SAAS_ROLE_KEY, "staff")
+    if role != "owner":
+        flash("Only the business owner can manage document numbering.", "danger")
+        return redirect(url_for("saas_auth.business_settings"))
+
+    if not validate_csrf(request.form.get("csrf_token")):
+        flash("Security error. Please try again.", "danger")
+        return redirect(url_for("saas_auth.business_settings"))
+
+    biz_id = session.get(SAAS_BIZ_KEY)
+    from utils.business_settings import reset_all_business_numbering_settings
+    reset_all_business_numbering_settings(biz_id)
+
+    audit_log("document_numbering_settings_reset", business_id=biz_id,
+              entity_type="business", entity_id=str(biz_id),
+              detail=f"by_user={session.get('saas_user_id')}")
+    flash("Document numbering reset to platform defaults.", "success")
+    return redirect(url_for("saas_auth.business_settings"))
 
 
 # ════════════════════════ SWITCH BUSINESS ════════════════════════════════════

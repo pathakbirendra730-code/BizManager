@@ -7,7 +7,14 @@
 
 <div class="pos-left">
   <div class="pos-invoice-bar">
-    <div><strong>Purchase #</strong> <span class="inv-badge">{{ pur_number }}</span></div>
+    <div><strong>Purchase #</strong>
+      {% if manual_numbering %}
+      <input type="text" id="manualDocNumber" class="form-control" style="display:inline-block;width:220px;padding:4px 8px"
+             placeholder="Enter purchase number" autocomplete="off">
+      {% else %}
+      <span class="inv-badge">{{ pur_number }}</span>
+      {% endif %}
+    </div>
     <div class="pos-date" id="posDate"></div>
     <div><span id="supplyLabel" class="badge badge-info">INTRA-STATE</span></div>
   </div>
@@ -325,8 +332,12 @@ async function savePurchase() {
     payment_method: document.getElementById("paymentMethod").value,
     paid_amount:    parseFloat(document.getElementById("paidAmount").value)||0,
     notes:          document.getElementById("purNotes").value,
+    manual_doc_number: document.getElementById("manualDocNumber") ? document.getElementById("manualDocNumber").value.trim() : "",
     csrf_token:     "{{ csrf_token }}"
   };
+  {% if manual_numbering %}
+  if (!payload.manual_doc_number) { alert("Please enter a purchase number."); btn.disabled=false; btn.textContent="✅ Save Purchase Bill"; return; }
+  {% endif %}
 
   try {
     const res  = await fetch("/biz/purchase/save", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});

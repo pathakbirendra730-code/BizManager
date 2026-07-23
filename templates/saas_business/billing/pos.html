@@ -8,7 +8,14 @@
 <!-- ═══════════════ LEFT: Product Search + Cart ════════════════════════════ -->
 <div class="pos-left">
   <div class="pos-invoice-bar">
-    <div><strong>Invoice #</strong> <span class="inv-badge">{{ inv_number }}</span></div>
+    <div><strong>Invoice #</strong>
+      {% if manual_numbering %}
+      <input type="text" id="manualDocNumber" class="form-control" style="display:inline-block;width:220px;padding:4px 8px"
+             placeholder="Enter invoice number" autocomplete="off">
+      {% else %}
+      <span class="inv-badge">{{ inv_number }}</span>
+      {% endif %}
+    </div>
     <div class="pos-date" id="posDate"></div>
     <div><span id="supplyLabel" class="badge badge-info">INTRA-STATE</span></div>
   </div>
@@ -363,8 +370,12 @@ async function saveBill() {
     payment_method: document.querySelector("input[name=payment]:checked").value,
     paid_amount:    parseFloat(document.getElementById("paidAmountInput").value) || 0,
     notes:          document.getElementById("billNotes").value,
+    manual_doc_number: document.getElementById("manualDocNumber") ? document.getElementById("manualDocNumber").value.trim() : "",
     csrf_token:     "{{ csrf_token }}"
   };
+  {% if manual_numbering %}
+  if (!payload.manual_doc_number) { alert("Please enter an invoice number."); btn.disabled=false; btn.textContent="✅ Save & Print Bill"; return; }
+  {% endif %}
   try {
     const res  = await fetch("/biz/billing/save", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload) });
     const data = await res.json();

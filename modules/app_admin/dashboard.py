@@ -555,4 +555,9 @@ def platform_settings():
         flash("Settings saved.", "success")
         return redirect(url_for("app_admin.platform_settings"))
 
-    return render_template("app_admin/settings.html", settings=all_settings())
+    from datetime import date
+    from utils.document_numbering import financial_year_for_date
+    today = date.today()
+    return render_template("app_admin/settings.html", settings=all_settings(),
+                           current_fy=financial_year_for_date(today),
+                           current_month=today.strftime("%Y-%m"))

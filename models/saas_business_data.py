@@ -10,7 +10,7 @@ This is a parallel schema to models/database.py — it does NOT touch
 or migrate the legacy shop/users data. SaaS businesses get their own
 fully isolated operational tables from day one.
 
-Tables (15):
+Tables (16):
   saas_categories       — product categories, per business
   saas_products         — inventory items, per business
   saas_customers         — customer master, per business
@@ -26,6 +26,8 @@ Tables (15):
   saas_bank_book         — bank account register
   saas_emi_history        — EMI/loan calculator saved results, scoped per user
   saas_document_sequences — FY-based document numbering counters (Update_027)
+  saas_business_settings  — per-business setting overrides, e.g. Document
+                             Numbering format (Update_027 follow-up)
 
 HSN master (hsn_master) remains global/shared — it's reference data,
 not tenant data, so the existing legacy table is reused as-is via a
@@ -441,6 +443,28 @@ def _init_sqlite(c):
     )""")
     c.execute("CREATE INDEX IF NOT EXISTS idx_saas_docseq_biz ON saas_document_sequences(business_id)")
 
+    # ── saas_business_settings ──────────────────────────────────────────────────
+    # Per-business key/value overrides (Update_027 follow-up: business-owner
+    # controlled Document Numbering). Mirrors the shape of the global
+    # platform_settings table, but scoped by business_id — a business with
+    # no row for a given key simply falls back to the platform-level
+    # default for that key (see utils/business_settings.py), so a business
+    # that never visits this page behaves exactly as before this table
+    # existed. Currently only the Document Numbering keys are ever written
+    # here, but the table itself is generic key/value, not doc-numbering-
+    # specific, in case future business-level settings need the same
+    # override-with-platform-fallback pattern.
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_business_settings (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        business_id    INTEGER NOT NULL REFERENCES saas_businesses(id) ON DELETE CASCADE,
+        key            TEXT    NOT NULL,
+        value          TEXT    NOT NULL DEFAULT '',
+        updated_by     INTEGER,
+        updated_at     TEXT    DEFAULT (datetime('now')),
+        UNIQUE(business_id, key)
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_bizsettings_biz ON saas_business_settings(business_id)")
+
     # Update_027: add the new document-number component columns to the two
     # existing document tables that already have live creation routes
     # (Sales Invoice, Purchase Bill). Existing rows are left exactly as they
@@ -755,6 +779,19 @@ def _init_postgres(c):
         UNIQUE(business_id, document_type, financial_year)
     )""")
     c.execute("CREATE INDEX IF NOT EXISTS idx_saas_docseq_biz ON saas_document_sequences(business_id)")
+
+    # ── saas_business_settings ──────────────────────────────────────────────────
+    # Postgres equivalent of the SQLite version above — see that one's comment.
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_business_settings (
+        id             SERIAL PRIMARY KEY,
+        business_id    INTEGER NOT NULL REFERENCES saas_businesses(id) ON DELETE CASCADE,
+        key            VARCHAR(100) NOT NULL,
+        value          TEXT         NOT NULL DEFAULT '',
+        updated_by     INTEGER,
+        updated_at     TIMESTAMP    DEFAULT NOW(),
+        UNIQUE(business_id, key)
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_bizsettings_biz ON saas_business_settings(business_id)")
 
     # Update_027: same column additions as the SQLite branch — Postgres has
     # native IF NOT EXISTS support for ADD COLUMN, so no PRAGMA-style check

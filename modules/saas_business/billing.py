@@ -36,23 +36,18 @@ def _invoice_status(total: float, paid: float) -> str:
     return "partial"
 
 
-def _generate_invoice_number(biz_id: int) -> str:
+def _generate_invoice_number(biz_id: int):
     """
     PREVIEW ONLY — shows what the next invoice number will look like on the
-    POS screen, without consuming it. Uses the same FY-based format as the
-    real one (Update_027: PREFIX/FY/000001), but reads the current position
-    rather than incrementing it, so just opening the POS page (or leaving
-    it open, or navigating away without completing a sale) can never skip
-    a number. The actual, sequence-consuming number is generated in
-    save_invoice() at the moment an invoice is actually saved.
+    POS screen, without consuming it. Delegates the actual formatting to
+    utils.document_numbering, which reads the admin-configured separator/
+    digit-length/suffix/auto-reset settings (Update_027 enhancement), so
+    this preview always matches whatever save_invoice() will actually
+    generate. Returns None when Manual Numbering is enabled — there's
+    nothing to preview since staff type their own number on save.
     """
-    from utils.document_numbering import current_sequence_position, financial_year_for_date
-    from utils.platform_settings import get_setting
-    from datetime import date
-    fy = financial_year_for_date(date.today())
-    prefix = get_setting("prefix_sales_invoice").strip() or "INV"
-    next_seq = current_sequence_position(biz_id, "sales_invoice", fy) + 1
-    return f"{prefix}/{fy}/{next_seq:06d}"
+    from utils.document_numbering import preview_next_document_number
+    return preview_next_document_number(biz_id, "sales_invoice")
 
 
 # ════════════════════════════════ POS ═════════════════════════════════════════
@@ -70,10 +65,13 @@ def pos():
         f"WHERE business_id={p} ORDER BY name",
         (biz_id,)
     )
-    inv_number = _generate_invoice_number(biz_id)
+    from utils.business_settings import get_business_bool_setting
+    manual_numbering = get_business_bool_setting(biz_id, "doc_numbering_manual_enable")
+    inv_number = _generate_invoice_number(biz_id)  # None when manual_numbering is on
 
     return render_template("saas_business/billing/pos.html",
-                           biz=biz, customers=customers, inv_number=inv_number)
+                           biz=biz, customers=customers, inv_number=inv_number,
+                           manual_numbering=manual_numbering)
 
 
 # ════════════════════════════════ SAVE INVOICE (AJAX) ═════════════════════════
@@ -171,7 +169,16 @@ def save_invoice():
         from utils.document_numbering import generate_document_number
         user_id    = session.get("saas_user_id")
         today      = datetime.utcnow().date().isoformat()
-        doc = generate_document_number(biz_id, "sales_invoice", today)
+        manual_doc_number = (data.get("manual_doc_number") or "").strip()
+        if manual_doc_number:
+            existing_no = saas_fetchone(
+                f"SELECT id FROM saas_invoices WHERE business_id={p} AND invoice_number={p}",
+                (biz_id, manual_doc_number)
+            )
+            if existing_no:
+                return jsonify({"success": False,
+                    "message": f"Invoice number '{manual_doc_number}' is already in use."}), 400
+        doc = generate_document_number(biz_id, "sales_invoice", today, manual_number=manual_doc_number)
         inv_number = doc["formatted"]
 
         inv_id = saas_execute(

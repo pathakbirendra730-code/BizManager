@@ -39,18 +39,14 @@ def _purchase_status(total: float, paid: float) -> str:
     return "partial"
 
 
-def _generate_purchase_number(biz_id: int) -> str:
+def _generate_purchase_number(biz_id: int):
     """
     PREVIEW ONLY — see billing.py::_generate_invoice_number for the full
     explanation of why this doesn't consume a sequence number itself.
+    Returns None when Manual Numbering is enabled.
     """
-    from utils.document_numbering import current_sequence_position, financial_year_for_date
-    from utils.platform_settings import get_setting
-    from datetime import date
-    fy = financial_year_for_date(date.today())
-    prefix = get_setting("prefix_purchase_bill").strip() or "PB"
-    next_seq = current_sequence_position(biz_id, "purchase_bill", fy) + 1
-    return f"{prefix}/{fy}/{next_seq:06d}"
+    from utils.document_numbering import preview_next_document_number
+    return preview_next_document_number(biz_id, "purchase_bill")
 
 
 # ════════════════════════════════ NEW PURCHASE FORM ════════════════════════════
@@ -68,12 +64,15 @@ def new():
         f"WHERE business_id={p} AND is_active=TRUE ORDER BY name",
         (biz_id,)
     )
-    pur_number = _generate_purchase_number(biz_id)
+    from utils.business_settings import get_business_bool_setting
+    manual_numbering = get_business_bool_setting(biz_id, "doc_numbering_manual_enable")
+    pur_number = _generate_purchase_number(biz_id)  # None when manual_numbering is on
     today = datetime.utcnow().date().isoformat()
 
     return render_template("saas_business/purchase/new.html",
                            biz=biz, suppliers=suppliers,
-                           pur_number=pur_number, today=today)
+                           pur_number=pur_number, today=today,
+                           manual_numbering=manual_numbering)
 
 
 # ════════════════════════════════ SAVE (AJAX) ══════════════════════════════════
@@ -150,7 +149,16 @@ def save():
 
         from utils.document_numbering import generate_document_number
         user_id    = session.get("saas_user_id")
-        doc = generate_document_number(biz_id, "purchase_bill", bill_date)
+        manual_doc_number = (data.get("manual_doc_number") or "").strip()
+        if manual_doc_number:
+            existing_no = saas_fetchone(
+                f"SELECT id FROM saas_purchases WHERE business_id={p} AND purchase_number={p}",
+                (biz_id, manual_doc_number)
+            )
+            if existing_no:
+                return jsonify({"success": False,
+                    "message": f"Purchase number '{manual_doc_number}' is already in use."}), 400
+        doc = generate_document_number(biz_id, "purchase_bill", bill_date, manual_number=manual_doc_number)
         pur_number = doc["formatted"]
 
         pur_id = saas_execute(

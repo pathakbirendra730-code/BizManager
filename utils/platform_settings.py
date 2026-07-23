@@ -277,11 +277,82 @@ SETTINGS_SCHEMA = [
         "validate": _validate_int_range(4, 8),
     },
     # ── Update_027: Document Numbering ──────────────────────────────────────
-    # These prefixes combine with a financial-year and a per-business,
-    # per-document-type running sequence to form the actual document
-    # number (e.g. INV/2026-27/000001) — see utils/document_numbering.py.
-    # Changing a prefix here only affects documents created AFTER the
-    # change; it never renumbers or reformats anything already issued.
+    # These prefixes combine with a financial-year (or monthly/never period,
+    # per doc_numbering_auto_reset below) and a per-business, per-document-
+    # type running sequence to form the actual document number (e.g.
+    # INV/2026-27/000001) — see utils/document_numbering.py.
+    #
+    # PLATFORM-WIDE DEFAULT, OVERRIDABLE PER BUSINESS: every setting in this
+    # group is now also editable by each business's own owner, from their
+    # Business Settings page (utils/business_settings.py) — the values here
+    # are only the default a business inherits until it saves its own
+    # override. A business with its own override is completely unaffected
+    # by later changes here; only businesses that never customized this
+    # group pick up a change made on this page.
+    #
+    # Changing any setting in this group only affects documents created
+    # AFTER the change; it never renumbers or reformats anything already
+    # issued (existing saas_document_sequences rows and the doc_prefix /
+    # doc_fy / doc_sequence stamped on past documents are left untouched).
+    {
+        "key": "doc_numbering_separator", "label": "Separator", "type": "select",
+        "options": ["/", "-"],
+        "default": lambda: _env_default("DOC_NUMBERING_SEPARATOR", "/"),
+        "help": "Character placed between the prefix, period, and running number.",
+        "group": "Document Numbering",
+    },
+    {
+        "key": "doc_numbering_suffix", "label": "Suffix (optional)", "type": "text",
+        "default": lambda: _env_default("DOC_NUMBERING_SUFFIX", ""),
+        "validate": _validate_max_len(10),
+        "help": ("Appended to the very end of every document number, e.g. a "
+                 "suffix of \"-A\" turns INV/2026-27/000001 into "
+                 "INV/2026-27/000001-A. Leave blank for none."),
+        "group": "Document Numbering",
+    },
+    {
+        "key": "doc_numbering_start_number", "label": "Starting Number", "type": "number",
+        "default": lambda: _env_default("DOC_NUMBERING_START_NUMBER", "1"),
+        "validate": _validate_int_range(1, 999999999),
+        "help": ("The first number of a fresh sequence (a new financial year, "
+                 "a new month, or the very first document — depending on "
+                 "Auto Reset below). Changing this never renumbers a sequence "
+                 "that's already started; it only applies the next time a new "
+                 "one begins."),
+        "group": "Document Numbering",
+    },
+    {
+        "key": "doc_numbering_digit_length", "label": "Digit Length", "type": "number",
+        "default": lambda: _env_default("DOC_NUMBERING_DIGIT_LENGTH", "6"),
+        "validate": _validate_int_range(1, 12),
+        "help": ("How many digits the running number is zero-padded to, e.g. "
+                 "6 → 000001. A number that grows past this many digits is "
+                 "shown in full, never truncated."),
+        "group": "Document Numbering",
+    },
+    {
+        "key": "doc_numbering_auto_reset", "label": "Auto Reset", "type": "select",
+        "options": ["financial_year", "monthly", "never"],
+        "option_labels": {"financial_year": "Financial Year", "monthly": "Monthly", "never": "Never"},
+        "default": lambda: _env_default("DOC_NUMBERING_AUTO_RESET", "financial_year"),
+        "help": ("Financial Year (default): sequence restarts at the Starting "
+                 "Number every 1 April, and the number includes the FY (e.g. "
+                 "2026-27). Monthly: restarts every calendar month, number "
+                 "includes YYYY-MM. Never: one continuous sequence forever, "
+                 "no period shown in the number."),
+        "group": "Document Numbering",
+    },
+    {
+        "key": "doc_numbering_manual_enable", "label": "Manual Numbering", "type": "bool",
+        "default": lambda: _env_default("DOC_NUMBERING_MANUAL_ENABLE", "false"),
+        "help": ("Off by default (recommended). When on, staff can type a "
+                 "custom document number when creating a Sales Invoice or "
+                 "Purchase Bill instead of using the auto-generated one. The "
+                 "auto sequence keeps running in the background either way, "
+                 "so turning this back off resumes auto-numbering exactly "
+                 "where it left off."),
+        "group": "Document Numbering",
+    },
     {
         "key": "prefix_sales_invoice", "label": "Sales Invoice Prefix", "type": "text",
         "default": lambda: _env_default("DOC_PREFIX_SALES_INVOICE", "INV"),

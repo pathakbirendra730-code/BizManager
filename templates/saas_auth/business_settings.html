@@ -171,6 +171,96 @@
       Plan upgrades are managed separately — contact support to change your plan.
     </p>
   </div>
+  {% if is_owner %}
+  <div class="profile-card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+      <h3 style="margin:0; font-size:16px; font-weight:700; color:#111827;">🔢 Document Numbering</h3>
+    </div>
+    <p style="margin:0 0 20px; font-size:13px; color:#6b7280;">
+      Controls the format of your Sales Invoice, Purchase Bill, and other document
+      numbers. Fields left as "Platform Default" follow your plan's default
+      numbering — set your own value here to override it just for this business.
+      Changes only affect documents created after saving; numbers already
+      issued are never renumbered.
+    </p>
+
+    <form method="POST" action="{{ url_for('saas_auth.document_numbering_settings') }}" id="numberingForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      {% set prefix_settings = numbering_settings|selectattr("is_prefix")|list %}
+      {% set format_settings = numbering_settings|rejectattr("is_prefix")|list %}
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+        {% for s in format_settings %}
+        <div>
+          <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:#374151; margin-bottom:6px;">
+            {{ s.label }}
+            {% if s.is_override %}<span style="font-size:10px; font-weight:700; color:#4f46e5; background:#eef2ff; padding:2px 6px; border-radius:6px;">CUSTOM</span>{% endif %}
+          </label>
+          {% if s.type == "bool" %}
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" name="{{ s.key }}" id="{{ s.key }}"
+                     {% if s.value == "true" %}checked{% endif %}
+                     onchange="updateBizNumberingPreview()"
+                     style="width:16px; height:16px; accent-color:#4f46e5;">
+              <span style="font-size:13px; color:#6b7280;">Let staff type their own number</span>
+            </label>
+          {% elif s.type == "select" %}
+            <select name="{{ s.key }}" id="{{ s.key }}" class="form-control" onchange="updateBizNumberingPreview()">
+              {% for opt in s.options %}
+              <option value="{{ opt }}" {% if opt == s.value %}selected{% endif %}>
+                {{ (s.option_labels and s.option_labels[opt]) or opt|capitalize }}
+              </option>
+              {% endfor %}
+            </select>
+          {% elif s.type == "number" %}
+            <input type="number" name="{{ s.key }}" id="{{ s.key }}" class="form-control"
+                   value="{{ s.value }}" oninput="updateBizNumberingPreview()">
+          {% else %}
+            <input type="text" name="{{ s.key }}" id="{{ s.key }}" class="form-control"
+                   value="{{ s.value }}" maxlength="10" oninput="updateBizNumberingPreview()">
+          {% endif %}
+          {% if s.help %}<p style="font-size:11px; color:#9ca3af; margin:5px 0 0;">{{ s.help }}</p>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+
+      <h4 style="font-size:13px; font-weight:700; color:#374151; margin:20px 0 12px;">Prefixes by Document Type</h4>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:20px;">
+        {% for s in prefix_settings %}
+        <div>
+          <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:#374151; margin-bottom:6px;">
+            {{ s.label|replace(" Prefix", "") }}
+            {% if s.is_override %}<span style="font-size:10px; font-weight:700; color:#4f46e5; background:#eef2ff; padding:2px 6px; border-radius:6px;">CUSTOM</span>{% endif %}
+          </label>
+          <input type="text" name="{{ s.key }}" id="{{ s.key }}" class="form-control"
+                 value="{{ s.value }}" maxlength="10" oninput="updateBizNumberingPreview()"
+                 style="text-transform:uppercase">
+        </div>
+        {% endfor %}
+      </div>
+
+      <div id="bizNumberingPreviewBox" style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:10px; padding:14px 16px; margin-bottom:20px;">
+        <p style="color:#9ca3af; font-size:11px; font-weight:700; margin:0 0 8px; letter-spacing:.03em; text-transform:uppercase;">Live Preview — Next Number</p>
+        <div id="bizNumberingPreviewList" style="display:grid; grid-template-columns:1fr 1fr; gap:5px 20px; font-family:monospace; font-size:13px; color:#374151;"></div>
+        <p id="bizNumberingManualNote" style="color:#b45309; font-size:12px; margin:8px 0 0; display:none;">
+          Manual Numbering is on — staff will type these numbers by hand instead.
+        </p>
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="padding:11px 28px;">Save Numbering</button>
+    </form>
+
+    <form method="POST" action="{{ url_for('saas_auth.reset_document_numbering_settings') }}"
+          onsubmit="return confirm('Reset all Document Numbering fields to the platform default? Your custom values here will be cleared.');"
+          style="margin-top:10px;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" style="background:none; border:none; color:#9ca3af; font-size:12px; text-decoration:underline; cursor:pointer; padding:0;">
+        Reset to platform defaults
+      </button>
+    </form>
+  </div>
+  {% endif %}
 
 </div>
 {% endblock %}
@@ -189,5 +279,51 @@ document.getElementById('bizSettingsForm').addEventListener('submit', function()
   btn.disabled = true;
   btn.textContent = 'Saving…';
 });
+
+{% if is_owner %}
+const BIZ_NUMBERING_DOC_TYPES = [
+  { key: "prefix_sales_invoice",    label: "Sales Invoice" },
+  { key: "prefix_purchase_bill",    label: "Purchase Bill" },
+  { key: "prefix_credit_note",      label: "Credit Note" },
+  { key: "prefix_debit_note",       label: "Debit Note" },
+  { key: "prefix_quotation",        label: "Quotation" },
+  { key: "prefix_delivery_challan", label: "Delivery Challan" },
+];
+const BIZ_NUMBERING_CURRENT_FY    = {{ current_fy|tojson }};
+const BIZ_NUMBERING_CURRENT_MONTH = {{ current_month|tojson }};
+
+function updateBizNumberingPreview() {
+  const box = document.getElementById("bizNumberingPreviewList");
+  if (!box) return;
+
+  const sep      = (document.getElementById("doc_numbering_separator") || {}).value || "/";
+  const suffix   = (document.getElementById("doc_numbering_suffix") || {}).value || "";
+  const startNum = parseInt((document.getElementById("doc_numbering_start_number") || {}).value, 10) || 1;
+  const digits   = parseInt((document.getElementById("doc_numbering_digit_length") || {}).value, 10) || 6;
+  const resetMode = (document.getElementById("doc_numbering_auto_reset") || {}).value || "financial_year";
+  const manualOn  = (document.getElementById("doc_numbering_manual_enable") || {}).checked || false;
+
+  document.getElementById("bizNumberingManualNote").style.display = manualOn ? "block" : "none";
+
+  const seqStr = String(startNum).padStart(digits, "0");
+  let period = "";
+  if (resetMode === "financial_year") period = BIZ_NUMBERING_CURRENT_FY;
+  else if (resetMode === "monthly")   period = BIZ_NUMBERING_CURRENT_MONTH;
+
+  box.innerHTML = "";
+  BIZ_NUMBERING_DOC_TYPES.forEach(dt => {
+    const prefixEl = document.getElementById(dt.key);
+    const prefix = (prefixEl && prefixEl.value.trim()) || dt.key.replace("prefix_", "").slice(0, 3).toUpperCase();
+    const formatted = period
+      ? `${prefix}${sep}${period}${sep}${seqStr}${suffix}`
+      : `${prefix}${sep}${seqStr}${suffix}`;
+    const row = document.createElement("div");
+    row.innerHTML = `<span style="color:#9ca3af">${dt.label}:</span> <span style="color:#4f46e5">${formatted}</span>`;
+    box.appendChild(row);
+  });
+}
+
+document.addEventListener("DOMContentLoaded", updateBizNumberingPreview);
+{% endif %}
 </script>
 {% endblock %}

@@ -2,11 +2,13 @@
 {% block title %}Platform Settings | App Admin{% endblock %}
 
 {% macro render_field(s) %}
+{% set is_numbering_field = s.key.startswith('doc_numbering_') or s.key.startswith('prefix_') %}
 <div class="form-group" style="padding-bottom:20px; margin-bottom:20px;">
   {% if s.type == "bool" %}
     <label style="display:flex; align-items:center; gap:10px; cursor:pointer; color:#e5e7eb; font-weight:600;">
       <input type="checkbox" name="{{ s.key }}"
              {% if s.value == "true" %}checked{% endif %}
+             {% if is_numbering_field %}id="{{ s.key }}" onchange="updateNumberingPreview()"{% endif %}
              style="width:18px; height:18px; accent-color:#6366f1;">
       {{ s.label }}
     </label>
@@ -15,10 +17,10 @@
       {{ s.label }}
     </label>
     {% if s.type == "select" %}
-      <select name="{{ s.key }}" class="form-control">
+      <select name="{{ s.key }}" class="form-control" {% if is_numbering_field %}id="{{ s.key }}" onchange="updateNumberingPreview()"{% endif %}>
         {% for opt in s.options %}
         <option value="{{ opt }}" {% if opt == s.value %}selected{% endif %}>
-          {{ opt|capitalize }}
+          {{ (s.option_labels and s.option_labels[opt]) or opt|capitalize }}
         </option>
         {% endfor %}
       </select>
@@ -27,9 +29,11 @@
              placeholder="{% if s.is_set %}Saved — leave blank to keep{% else %}Not set{% endif %}"
              autocomplete="off">
     {% elif s.type == "number" %}
-      <input type="number" name="{{ s.key }}" class="form-control" value="{{ s.value }}">
+      <input type="number" name="{{ s.key }}" class="form-control" value="{{ s.value }}"
+             {% if is_numbering_field %}id="{{ s.key }}" oninput="updateNumberingPreview()"{% endif %}>
     {% else %}
-      <input type="text" name="{{ s.key }}" class="form-control" value="{{ s.value }}">
+      <input type="text" name="{{ s.key }}" class="form-control" value="{{ s.value }}"
+             {% if is_numbering_field %}id="{{ s.key }}" oninput="updateNumberingPreview()"{% endif %}>
     {% endif %}
   {% endif %}
 
@@ -57,19 +61,84 @@
     {% endfor %}
   </div>
 
+  {% set group_descriptions = {
+    "Document Numbering": "Platform-wide default for Sales Invoice, Purchase Bill, and other document number formats. Each business owner can override any of this for their own business from their Business Settings page — a change here only affects businesses that haven't set their own values. Changes never renumber or reformat numbers already issued.",
+  } %}
+
   {% set groups = settings|selectattr("group", "defined")|groupby("group") %}
   {% for group_name, group_settings in groups %}
   <div class="card" style="padding:24px; margin-bottom:20px;">
     <h2 style="font-size:16px; color:#fff; margin:0 0 4px;">{{ group_name }}</h2>
     <p style="color:#6b7280; font-size:12px; margin:0 0 20px;">
-      Only used when Email Provider or SMS Provider above is set to {{ group_name }}.
+      {% if group_name in group_descriptions %}
+        {{ group_descriptions[group_name] }}
+      {% else %}
+        Only used when Email Provider or SMS Provider above is set to {{ group_name }}.
+      {% endif %}
     </p>
     {% for s in group_settings %}
       {{ render_field(s) }}
     {% endfor %}
+
+    {% if group_name == "Document Numbering" %}
+    <div id="numberingPreviewBox" style="background:#111827; border:1px solid #27272a; border-radius:8px; padding:16px 18px; margin-top:4px;">
+      <p style="color:#9ca3af; font-size:12px; font-weight:600; margin:0 0 10px; letter-spacing:.03em; text-transform:uppercase;">Live Preview — Next Number</p>
+      <div id="numberingPreviewList" style="display:grid; grid-template-columns:1fr 1fr; gap:6px 20px; font-family:monospace; font-size:14px; color:#d1d5db;"></div>
+      <p id="numberingManualNote" style="color:#f59e0b; font-size:12px; margin:10px 0 0; display:none;">
+        Manual Numbering is on — staff will type these numbers by hand instead.
+      </p>
+    </div>
+    {% endif %}
   </div>
   {% endfor %}
 
   <button type="submit" class="btn-admin">Save Settings</button>
 </form>
+
+<script>
+const NUMBERING_DOC_TYPES = [
+  { key: "prefix_sales_invoice",    label: "Sales Invoice" },
+  { key: "prefix_purchase_bill",    label: "Purchase Bill" },
+  { key: "prefix_credit_note",      label: "Credit Note" },
+  { key: "prefix_debit_note",       label: "Debit Note" },
+  { key: "prefix_quotation",        label: "Quotation" },
+  { key: "prefix_delivery_challan", label: "Delivery Challan" },
+];
+const NUMBERING_CURRENT_FY    = {{ current_fy|tojson }};
+const NUMBERING_CURRENT_MONTH = {{ current_month|tojson }};
+
+function updateNumberingPreview() {
+  const box = document.getElementById("numberingPreviewList");
+  if (!box) return;  // Document Numbering group not on this render
+
+  const sep      = (document.getElementById("doc_numbering_separator") || {}).value || "/";
+  const suffix   = (document.getElementById("doc_numbering_suffix") || {}).value || "";
+  const startNum = parseInt((document.getElementById("doc_numbering_start_number") || {}).value, 10) || 1;
+  const digits   = parseInt((document.getElementById("doc_numbering_digit_length") || {}).value, 10) || 6;
+  const resetMode = (document.getElementById("doc_numbering_auto_reset") || {}).value || "financial_year";
+  const manualOn  = (document.getElementById("doc_numbering_manual_enable") || {}).checked || false;
+
+  document.getElementById("numberingManualNote").style.display = manualOn ? "block" : "none";
+
+  const seqStr = String(startNum).padStart(digits, "0");
+  let period = "";
+  if (resetMode === "financial_year") period = NUMBERING_CURRENT_FY;
+  else if (resetMode === "monthly")   period = NUMBERING_CURRENT_MONTH;
+  // "never" → no period segment
+
+  box.innerHTML = "";
+  NUMBERING_DOC_TYPES.forEach(dt => {
+    const prefixEl = document.getElementById(dt.key);
+    const prefix = (prefixEl && prefixEl.value.trim()) || dt.key.replace("prefix_", "").slice(0, 3).toUpperCase();
+    const formatted = period
+      ? `${prefix}${sep}${period}${sep}${seqStr}${suffix}`
+      : `${prefix}${sep}${seqStr}${suffix}`;
+    const row = document.createElement("div");
+    row.innerHTML = `<span style="color:#6b7280">${dt.label}:</span> <span style="color:#a5b4fc">${formatted}</span>`;
+    box.appendChild(row);
+  });
+}
+
+document.addEventListener("DOMContentLoaded", updateNumberingPreview);
+</script>
 {% endblock %}
