@@ -276,6 +276,36 @@ SETTINGS_SCHEMA = [
         "default": lambda: _env_default("OTP_LENGTH", "6"),
         "validate": _validate_int_range(4, 8),
     },
+    # ── Update_029: Tax & Pricing ────────────────────────────────────────────
+    # Business-level default pricing method for Sales and Purchase entry —
+    # whether the rate a staff member types in is treated as the taxable
+    # (GST-exclusive) rate, or as the GST-inclusive rate the customer/
+    # supplier actually pays. See utils/tax_helpers.py::calculate_gst() for
+    # the derivation math, and utils/business_settings.py for how each
+    # business can override this platform-wide default for itself.
+    #
+    # Every document (invoice/purchase) stamps the mode it was actually
+    # calculated under onto itself at creation time (saas_invoices.tax_mode
+    # / saas_purchases.tax_mode) — this setting only decides what mode NEW
+    # documents use going forward; it can never reinterpret or reformat a
+    # document that already exists.
+    {
+        "key": "default_tax_mode", "label": "Default Pricing Method", "type": "select",
+        "options": ["exclusive", "inclusive"],
+        "option_labels": {"exclusive": "Tax Exclusive (rate + GST)", "inclusive": "Tax Inclusive (rate includes GST)"},
+        "default": lambda: _env_default("DEFAULT_TAX_MODE", "exclusive"),
+        "help": ("Tax Exclusive (default): the rate entered on a Sales "
+                 "Invoice or Purchase Bill is the taxable value — GST is "
+                 "calculated and added on top, so Grand Total = Taxable + "
+                 "GST. Tax Inclusive: the rate entered already includes "
+                 "GST — the taxable value and GST are worked backwards out "
+                 "of it, so Grand Total always equals exactly what was "
+                 "typed in. Changing this only affects new documents; "
+                 "nothing already saved is ever recalculated or "
+                 "reformatted."),
+        "group": "Tax & Pricing",
+    },
+
     # ── Update_027: Document Numbering ──────────────────────────────────────
     # These prefixes combine with a financial-year (or monthly/never period,
     # per doc_numbering_auto_reset below) and a per-business, per-document-

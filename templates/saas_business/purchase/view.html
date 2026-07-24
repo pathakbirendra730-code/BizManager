@@ -49,6 +49,9 @@ td{padding:7px 9px;border-bottom:1px solid #eee;font-size:11px}
     <div style="font-size:11px;color:#555">{{ purchase.created_at | dtfmt(16) }}</div>
     <div style="margin-top:5px">
       <span class="badge {{ purchase.status }}">{{ purchase.status|upper }}</span>
+      <span class="badge" style="background:#eef2ff;color:#4338ca">
+        {{ 'TAX INCLUSIVE' if (purchase.tax_mode or 'exclusive') == 'inclusive' else 'TAX EXCLUSIVE' }}
+      </span>
     </div>
   </div>
 </div>
@@ -122,7 +125,7 @@ td{padding:7px 9px;border-bottom:1px solid #eee;font-size:11px}
 
 <div class="totals">
   <table class="tot-table">
-    <tr><td>Subtotal</td><td style="text-align:right">₹{{ "%.2f"|format(purchase.subtotal) }}</td></tr>
+    <tr><td>{{ 'Amount (incl. GST)' if (purchase.tax_mode or 'exclusive') == 'inclusive' else 'Subtotal' }}</td><td style="text-align:right">₹{{ "%.2f"|format(purchase.subtotal) }}</td></tr>
     {% if purchase.discount > 0 %}
     <tr><td>Discount {% if purchase.discount_pct>0 %}({{ purchase.discount_pct }}%){% endif %}</td>
         <td style="text-align:right;color:#dc2626">–₹{{ "%.2f"|format(purchase.discount) }}</td></tr>

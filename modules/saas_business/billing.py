@@ -65,13 +65,14 @@ def pos():
         f"WHERE business_id={p} ORDER BY name",
         (biz_id,)
     )
-    from utils.business_settings import get_business_bool_setting
+    from utils.business_settings import get_business_bool_setting, get_business_tax_mode
     manual_numbering = get_business_bool_setting(biz_id, "doc_numbering_manual_enable")
+    tax_mode = get_business_tax_mode(biz_id)
     inv_number = _generate_invoice_number(biz_id)  # None when manual_numbering is on
 
     return render_template("saas_business/billing/pos.html",
                            biz=biz, customers=customers, inv_number=inv_number,
-                           manual_numbering=manual_numbering)
+                           manual_numbering=manual_numbering, tax_mode=tax_mode)
 
 
 # ════════════════════════════════ SAVE INVOICE (AJAX) ═════════════════════════
@@ -123,6 +124,10 @@ def save_invoice():
 
     supply_type = determine_supply_type(biz.get("state_code", ""), cust_state)
 
+    from utils.business_settings import get_business_tax_mode
+    tax_mode = get_business_tax_mode(biz_id)          # 'exclusive' or 'inclusive'
+    is_inclusive = (tax_mode == "inclusive")
+
     try:
         # Validate stock — tenant-scoped product lookups
         for item in items:
@@ -135,25 +140,38 @@ def save_invoice():
                     "message": f"Insufficient stock for '{prod['name']}'. "
                                f"Available: {prod['stock_quantity']}"}), 400
 
-        # Compute totals using the shared GST engine
-        subtotal = 0
+        # Compute totals using the shared GST engine. `gross_subtotal` is
+        # always unit_price * quantity summed across items — the raw
+        # entered amount, identical regardless of tax mode (interpretation
+        # differs, the number doesn't) — see utils.tax_helpers.calculate_gst.
+        gross_subtotal = 0
         item_calcs = []
         for item in items:
             gst_r = float(item.get("gst_rate", 18))
             g = calculate_gst(float(item["unit_price"]), float(item["quantity"]),
-                              gst_r, supply_type)
-            subtotal += g["taxable"]
+                              gst_r, supply_type, is_inclusive=is_inclusive)
+            gross_subtotal += g["subtotal"]
             item_calcs.append((item, g))
 
-        disc_amt    = round(subtotal * disc_pct / 100, 2)
-        taxable_tot = round(subtotal - disc_amt, 2)
-        scale       = taxable_tot / subtotal if subtotal else 1
+        disc_amt = round(gross_subtotal * disc_pct / 100, 2)
+        scale    = round(gross_subtotal - disc_amt, 2) / gross_subtotal if gross_subtotal else 1
 
-        cgst_tot = sgst_tot = igst_tot = 0
+        # taxable_tot is derived via the SAME scaled-sum-of-per-item-values
+        # pattern already used for cgst/sgst/igst below — not via a direct
+        # "gross_subtotal - disc_amt" formula — because in Tax Inclusive
+        # mode the taxable value isn't a simple subtraction, it's the sum
+        # of each item's derived (GST-excluded) taxable value. For Tax
+        # Exclusive this produces the exact same number as the old direct
+        # formula (verified: taxable == gross here, so the two approaches
+        # are algebraically identical), so this is a like-for-like
+        # generalization, not a behavior change for existing invoices.
+        taxable_tot = cgst_tot = sgst_tot = igst_tot = 0
         for _, g in item_calcs:
-            cgst_tot += g["cgst_amount"] * scale
-            sgst_tot += g["sgst_amount"] * scale
-            igst_tot += g["igst_amount"] * scale
+            taxable_tot += g["taxable"] * scale
+            cgst_tot    += g["cgst_amount"] * scale
+            sgst_tot    += g["sgst_amount"] * scale
+            igst_tot    += g["igst_amount"] * scale
+        taxable_tot = round(taxable_tot, 2)
         cgst_tot  = round(cgst_tot, 2)
         sgst_tot  = round(sgst_tot, 2)
         igst_tot  = round(igst_tot, 2)
@@ -189,16 +207,16 @@ def save_invoice():
                  subtotal, discount, discount_pct, taxable_amount,
                  cgst_amount, sgst_amount, igst_amount, total_tax, total,
                  paid_amount, due_amount, payment_method, place_of_supply,
-                 notes, status, created_by)
+                 notes, status, tax_mode, created_by)
                 VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},
-                        {p},{p},{p},{p},{p},{p},{p},{p},{p},{p})""",
+                        {p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p})""",
             (biz_id, inv_number, doc["prefix"], doc["financial_year"], doc["sequence"],
              customer_id, customer_name,
              cust_gstin, cust_state, supply_type,
-             subtotal, disc_amt, disc_pct, taxable_tot,
+             gross_subtotal, disc_amt, disc_pct, taxable_tot,
              cgst_tot, sgst_tot, igst_tot, total_tax, grand_tot,
              paid_amount, due_amount, payment,
-             cust_state or biz.get("state_code", ""), notes, status, user_id)
+             cust_state or biz.get("state_code", ""), notes, status, tax_mode, user_id)
         )
 
         # Invoice line items + tenant-scoped stock decrement

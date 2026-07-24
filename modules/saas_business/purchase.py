@@ -64,15 +64,16 @@ def new():
         f"WHERE business_id={p} AND is_active=TRUE ORDER BY name",
         (biz_id,)
     )
-    from utils.business_settings import get_business_bool_setting
+    from utils.business_settings import get_business_bool_setting, get_business_tax_mode
     manual_numbering = get_business_bool_setting(biz_id, "doc_numbering_manual_enable")
+    tax_mode = get_business_tax_mode(biz_id)
     pur_number = _generate_purchase_number(biz_id)  # None when manual_numbering is on
     today = datetime.utcnow().date().isoformat()
 
     return render_template("saas_business/purchase/new.html",
                            biz=biz, suppliers=suppliers,
                            pur_number=pur_number, today=today,
-                           manual_numbering=manual_numbering)
+                           manual_numbering=manual_numbering, tax_mode=tax_mode)
 
 
 # ════════════════════════════════ SAVE (AJAX) ══════════════════════════════════
@@ -118,25 +119,38 @@ def save():
 
     supply_type = determine_supply_type(biz.get("state_code", ""), sup_state)
 
+    from utils.business_settings import get_business_tax_mode
+    tax_mode = get_business_tax_mode(biz_id)          # 'exclusive' or 'inclusive'
+    is_inclusive = (tax_mode == "inclusive")
+
     try:
-        subtotal = 0
+        # gross_subtotal is always unit_price * quantity summed across
+        # items — the raw entered amount, identical regardless of tax
+        # mode. See billing.py::save_invoice for the full explanation of
+        # why taxable/cgst/sgst/igst are all derived via the same
+        # scaled-sum-of-per-item-values pattern rather than a direct
+        # subtraction formula (needed for Tax Inclusive to be correct;
+        # produces the identical number for Tax Exclusive, so no
+        # behavior change for existing purchases).
+        gross_subtotal = 0
         item_calcs = []
         for item in items:
             gst_r = float(item.get("gst_rate", 0))
             g = calculate_gst(float(item["unit_price"]), float(item["quantity"]),
-                              gst_r, supply_type)
-            subtotal += g["taxable"]
+                              gst_r, supply_type, is_inclusive=is_inclusive)
+            gross_subtotal += g["subtotal"]
             item_calcs.append((item, g))
 
-        disc_amt = round(subtotal * disc_pct / 100, 2)
-        taxable  = round(subtotal - disc_amt, 2)
-        scale    = taxable / subtotal if subtotal else 1
+        disc_amt = round(gross_subtotal * disc_pct / 100, 2)
+        scale    = round(gross_subtotal - disc_amt, 2) / gross_subtotal if gross_subtotal else 1
 
-        cgst_tot = sgst_tot = igst_tot = 0
+        taxable = cgst_tot = sgst_tot = igst_tot = 0
         for _, g in item_calcs:
+            taxable  += g["taxable"] * scale
             cgst_tot += g["cgst_amount"] * scale
             sgst_tot += g["sgst_amount"] * scale
             igst_tot += g["igst_amount"] * scale
+        taxable   = round(taxable, 2)
         cgst_tot  = round(cgst_tot, 2)
         sgst_tot  = round(sgst_tot, 2)
         igst_tot  = round(igst_tot, 2)
@@ -169,21 +183,35 @@ def save():
                  subtotal, discount, discount_pct, taxable_amount,
                  cgst_amount, sgst_amount, igst_amount, total_tax, total,
                  paid_amount, due_amount, payment_method, supply_type,
-                 notes, status, created_by)
+                 notes, status, tax_mode, created_by)
                 VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},
-                        {p},{p},{p},{p},{p},{p},{p},{p},{p},{p})""",
+                        {p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p})""",
             (biz_id, pur_number, doc["prefix"], doc["financial_year"], doc["sequence"],
              supplier_id, supplier_name,
              sup_gstin, bill_number, bill_date,
-             subtotal, disc_amt, disc_pct, taxable,
+             gross_subtotal, disc_amt, disc_pct, taxable,
              cgst_tot, sgst_tot, igst_tot, total_tax, total,
              paid_amount, due, payment, supply_type,
-             notes, status, user_id)
+             notes, status, tax_mode, user_id)
         )
 
-        # Items + tenant-scoped stock increment + cost price update
+        # Items + tenant-scoped stock increment + cost price update.
+        #
+        # cost_price is set from item_taxable_per_unit — the TAXABLE
+        # value per unit, net of both item- and order-level discount —
+        # NEVER from the raw entered unit_price. This matters in both
+        # modes: in Tax Exclusive it correctly nets out any discount
+        # (the old code used the undiscounted rate verbatim); in Tax
+        # Inclusive it's essential — using the raw (GST-inclusive)
+        # unit_price directly would inflate inventory valuation and COGS
+        # by the GST amount, since Finance's COGS calculation and
+        # Reports' stock valuation both compute directly off
+        # saas_products.cost_price (quantity_sold/on-hand × cost_price —
+        # see modules/saas_business/{accounts,finance,reports}.py).
         for item, g in item_calcs:
             item_taxable = g["taxable"] * scale
+            item_qty = float(item["quantity"])
+            item_taxable_per_unit = round(item_taxable / item_qty, 2) if item_qty else float(item["unit_price"])
             saas_execute(
                 f"""INSERT INTO saas_purchase_items
                     (purchase_id, business_id, product_id, product_name, hsn_code,
@@ -205,7 +233,7 @@ def save():
                             cost_price     = {p},
                             updated_at     = {p}
                         WHERE id={p} AND business_id={p}""",
-                    (item["quantity"], item["unit_price"], datetime.utcnow().isoformat(),
+                    (item["quantity"], item_taxable_per_unit, datetime.utcnow().isoformat(),
                      item["product_id"], biz_id)
                 )
 

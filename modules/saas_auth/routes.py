@@ -1433,14 +1433,17 @@ def business_settings():
         flash("Business settings updated successfully.", "success")
         return redirect(url_for("saas_auth.business_settings"))
 
-    from utils.business_settings import all_business_settings
+    from utils.business_settings import all_business_settings_by_group
     from utils.document_numbering import financial_year_for_date
-    numbering_settings = all_business_settings(biz_id)
+    settings_by_group = all_business_settings_by_group(biz_id)
+    numbering_settings = settings_by_group.get("Document Numbering", [])
+    tax_settings_list  = settings_by_group.get("Tax & Pricing", [])
     today = datetime.utcnow().date()
 
     return render_template("saas_auth/business_settings.html",
                            biz=biz, states=states,
                            numbering_settings=numbering_settings,
+                           tax_settings_list=tax_settings_list,
                            is_owner=(role == "owner"),
                            current_fy=financial_year_for_date(today),
                            current_month=today.strftime("%Y-%m"))
@@ -1476,6 +1479,8 @@ def document_numbering_settings():
 
     errors = []
     for schema in BUSINESS_SETTINGS_SCHEMA:
+        if schema.get("group") != "Document Numbering":
+            continue  # this form only ever submits Document Numbering fields
         key = schema["key"]
         if schema["type"] == "bool":
             value = "true" if request.form.get(key) == "on" else "false"
@@ -1522,6 +1527,83 @@ def reset_document_numbering_settings():
               entity_type="business", entity_id=str(biz_id),
               detail=f"by_user={session.get('saas_user_id')}")
     flash("Document numbering reset to platform defaults.", "success")
+    return redirect(url_for("saas_auth.business_settings"))
+
+
+# ═══════════════════════ TAX & PRICING (business-owner override) ═════════════
+
+@saas_auth_bp.route("/business-settings/tax", methods=["POST"])
+@saas_business_required
+def tax_settings():
+    """
+    Save this business's own default pricing method (Tax Exclusive / Tax
+    Inclusive) for new Sales Invoices and Purchase Bills. Owner only —
+    same restriction and override/fallback design as Document Numbering
+    (see document_numbering_settings() above). Never touches any document
+    already saved — see saas_invoices.tax_mode / saas_purchases.tax_mode,
+    which are stamped once at creation and never re-derived from this
+    setting afterwards.
+    """
+    role = session.get(SAAS_ROLE_KEY, "staff")
+    if role != "owner":
+        flash("Only the business owner can manage tax settings.", "danger")
+        return redirect(url_for("saas_auth.business_settings"))
+
+    if not validate_csrf(request.form.get("csrf_token")):
+        flash("Security error. Please try again.", "danger")
+        return redirect(url_for("saas_auth.business_settings"))
+
+    biz_id = session.get(SAAS_BIZ_KEY)
+    from utils.business_settings import BUSINESS_SETTINGS_SCHEMA, set_business_setting
+    user_id = session.get("saas_user_id")
+
+    errors = []
+    for schema in BUSINESS_SETTINGS_SCHEMA:
+        if schema.get("group") != "Tax & Pricing":
+            continue
+        key = schema["key"]
+        value = request.form.get(key, "").strip()
+        if schema.get("options") and value not in schema["options"]:
+            continue  # ignore tampered/invalid values, keep old one
+        try:
+            set_business_setting(biz_id, key, value, updated_by=user_id)
+        except ValueError as e:
+            errors.append(str(e))
+
+    if errors:
+        for e in errors:
+            flash(e, "danger")
+    else:
+        audit_log("tax_settings_updated", business_id=biz_id,
+                  entity_type="business", entity_id=str(biz_id),
+                  detail=f"by_user={user_id}")
+        flash("Tax settings updated.", "success")
+
+    return redirect(url_for("saas_auth.business_settings"))
+
+
+@saas_auth_bp.route("/business-settings/tax/reset", methods=["POST"])
+@saas_business_required
+def reset_tax_settings():
+    """Clear this business's Tax & Pricing override, reverting it back to
+    the platform-wide App Admin default. Owner only."""
+    role = session.get(SAAS_ROLE_KEY, "staff")
+    if role != "owner":
+        flash("Only the business owner can manage tax settings.", "danger")
+        return redirect(url_for("saas_auth.business_settings"))
+
+    if not validate_csrf(request.form.get("csrf_token")):
+        flash("Security error. Please try again.", "danger")
+        return redirect(url_for("saas_auth.business_settings"))
+
+    biz_id = session.get(SAAS_BIZ_KEY)
+    from utils.business_settings import reset_all_business_tax_settings
+    reset_all_business_tax_settings(biz_id)
+
+    audit_log("tax_settings_reset", business_id=biz_id,
+              entity_type="business", entity_id=str(biz_id),
+              detail=f"by_user={session.get('saas_user_id')}")
+    flash("Tax settings reset to platform default.", "success")
     return redirect(url_for("saas_auth.business_settings"))
 
 

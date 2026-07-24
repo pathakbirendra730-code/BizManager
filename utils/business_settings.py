@@ -1,19 +1,25 @@
 """
 utils/business_settings.py — Per-business, owner-editable configuration.
 
-Update_027 follow-up: Document Numbering (prefix, separator, suffix,
-starting number, digit length, auto reset, manual numbering) moves from a
-single platform-wide setting to something every business can configure
-for itself, from its own Business Settings page — no super-admin needed.
+Update_027: Document Numbering (prefix, separator, suffix, starting
+number, digit length, auto reset, manual numbering) moves from a single
+platform-wide setting to something every business can configure for
+itself, from its own Business Settings page — no super-admin needed.
+
+Update_029: Tax & Pricing (default Tax Exclusive / Tax Inclusive mode for
+Sales and Purchase entry) joins it as a second business-overridable group,
+using the exact same mechanism.
 
 Design — override with platform fallback, not a fork:
   • The schema is NOT redefined here. `BUSINESS_SETTINGS_SCHEMA` is simply
-    the "Document Numbering" group already declared in
-    utils/platform_settings.py's SETTINGS_SCHEMA — the exact same key
-    names, labels, types, options, and validators. This means the App
-    Admin form and every business's own form always agree on what a
-    valid value looks like, and there's only ever one place to add a
-    new numbering setting in the future.
+    every entry from utils/platform_settings.py's SETTINGS_SCHEMA whose
+    `group` is one of OVERRIDABLE_GROUPS — the exact same key names,
+    labels, types, options, and validators. This means the App Admin form
+    and every business's own form always agree on what a valid value
+    looks like, and there's only ever one place to add a new
+    business-overridable setting in the future: give it one of the
+    groups below in the platform schema, and it appears here
+    automatically.
   • get_business_setting() checks saas_business_settings (this business's
     own override) first; if this business has never saved that key, it
     falls back to utils.platform_settings.get_setting() — the platform
@@ -21,12 +27,12 @@ Design — override with platform fallback, not a fork:
       - A business that never opens this page behaves exactly as it did
         before this module existed (reads the platform-wide value, same
         as every other business).
-      - The App Admin "Document Numbering" settings remain meaningful as
-        the platform-wide default for every business that hasn't
-        customized its own — not orphaned dead settings.
+      - The App Admin settings remain meaningful as the platform-wide
+        default for every business that hasn't customized its own — not
+        orphaned dead settings.
       - A business can override any subset of the keys (e.g. just its
-        own prefixes) while still inheriting the platform default for
-        the rest.
+        own prefixes, or just its tax mode) while still inheriting the
+        platform default for the rest.
   • set_business_setting() validates against the same schema/validators
     as the platform version, so a business owner can't save something
     the App Admin form itself would reject.
@@ -37,10 +43,10 @@ from utils.platform_settings import SETTINGS_SCHEMA as _PLATFORM_SCHEMA, get_set
 
 P = lambda: "%s" if _is_postgres() else "?"
 
-# The one settings group that's currently business-overridable. Pulled
+# The settings groups that are currently business-overridable. Pulled
 # straight from the platform schema (see module docstring) — not a copy.
-_OVERRIDABLE_GROUP = "Document Numbering"
-BUSINESS_SETTINGS_SCHEMA = [s for s in _PLATFORM_SCHEMA if s.get("group") == _OVERRIDABLE_GROUP]
+OVERRIDABLE_GROUPS = ["Document Numbering", "Tax & Pricing"]
+BUSINESS_SETTINGS_SCHEMA = [s for s in _PLATFORM_SCHEMA if s.get("group") in OVERRIDABLE_GROUPS]
 _SCHEMA_BY_KEY = {s["key"]: s for s in BUSINESS_SETTINGS_SCHEMA}
 
 
@@ -122,12 +128,47 @@ def reset_business_setting(business_id: int, key: str) -> None:
     )
 
 
-def reset_all_business_numbering_settings(business_id: int) -> None:
-    """Clear every Document Numbering override for this business in one
-    go — the "Reset to platform defaults" button on the business
-    settings page."""
+def reset_business_settings_group(business_id: int, group: str) -> None:
+    """Clear every override for this business within a single settings
+    group (e.g. "Document Numbering" or "Tax & Pricing"), reverting each
+    key in that group back to the platform-wide default. Scoped to one
+    group deliberately — resetting Tax & Pricing must never also wipe a
+    business's Document Numbering customizations, and vice versa."""
     for schema in BUSINESS_SETTINGS_SCHEMA:
-        reset_business_setting(business_id, schema["key"])
+        if schema.get("group") == group:
+            reset_business_setting(business_id, schema["key"])
+
+
+def reset_all_business_numbering_settings(business_id: int) -> None:
+    """Clear every Document Numbering override for this business — the
+    "Reset to platform defaults" button in that section of the Business
+    Settings page."""
+    reset_business_settings_group(business_id, "Document Numbering")
+
+
+def reset_all_business_tax_settings(business_id: int) -> None:
+    """Clear this business's Tax & Pricing override — the "Reset to
+    platform default" action in that section of the Business Settings
+    page."""
+    reset_business_settings_group(business_id, "Tax & Pricing")
+
+
+def get_business_tax_mode(business_id: int) -> str:
+    """
+    This business's effective default pricing method for NEW Sales
+    Invoices / Purchase Bills: 'exclusive' or 'inclusive'. Resolves
+    through the same override → platform-default → schema-default chain
+    as every other business setting (see module docstring), so a
+    business that never customizes this reads whatever the platform-wide
+    App Admin default currently is — 'exclusive' out of the box, which
+    reproduces pre-Update_029 behavior exactly.
+
+    This does NOT affect any document already saved — see
+    saas_invoices.tax_mode / saas_purchases.tax_mode, stamped once per
+    document at creation time, never re-derived from this setting later.
+    """
+    mode = get_business_setting(business_id, "default_tax_mode").strip().lower()
+    return mode if mode in ("exclusive", "inclusive") else "exclusive"
 
 
 def all_business_settings(business_id: int) -> list:
@@ -136,8 +177,9 @@ def all_business_settings(business_id: int) -> list:
     override or an inherited platform default — what the Business
     Settings page renders itself from. Each entry also carries
     `is_prefix` (True for the six per-document-type prefix fields, False
-    for the general format fields) so templates can group them without
-    needing a regex test."""
+    for everything else) so templates can group them without needing a
+    regex test, and `group` (from the schema) so templates can split
+    entries across multiple overridable sections."""
     result = []
     for s in BUSINESS_SETTINGS_SCHEMA:
         entry = dict(s)
@@ -146,3 +188,14 @@ def all_business_settings(business_id: int) -> list:
         entry["is_override"] = _business_row(business_id, s["key"]) is not None
         result.append(entry)
     return result
+
+
+def all_business_settings_by_group(business_id: int) -> dict:
+    """Same data as all_business_settings(), grouped by settings group
+    (in first-seen order) — lets the Business Settings page render one
+    card per business-overridable group without hardcoding which groups
+    exist."""
+    grouped = {}
+    for entry in all_business_settings(business_id):
+        grouped.setdefault(entry["group"], []).append(entry)
+    return grouped

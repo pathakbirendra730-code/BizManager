@@ -260,6 +260,55 @@
       </button>
     </form>
   </div>
+
+  <div class="profile-card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+      <h3 style="margin:0; font-size:16px; font-weight:700; color:#111827;">💰 Tax & Pricing</h3>
+    </div>
+    <p style="margin:0 0 20px; font-size:13px; color:#6b7280;">
+      Controls how a rate typed into a Sales Invoice or Purchase Bill is interpreted —
+      as the taxable value (GST added on top) or as the GST-inclusive price the
+      customer/supplier actually pays (GST worked out backwards). This only affects
+      documents created after saving; nothing already issued is ever recalculated.
+    </p>
+
+    <form method="POST" action="{{ url_for('saas_auth.tax_settings') }}" id="taxSettingsForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      {% for s in tax_settings_list %}
+      <div style="margin-bottom:16px;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:#374151; margin-bottom:6px;">
+          {{ s.label }}
+          {% if s.is_override %}<span style="font-size:10px; font-weight:700; color:#4f46e5; background:#eef2ff; padding:2px 6px; border-radius:6px;">CUSTOM</span>{% endif %}
+        </label>
+        <select name="{{ s.key }}" id="{{ s.key }}" class="form-control" onchange="updateTaxModePreview()">
+          {% for opt in s.options %}
+          <option value="{{ opt }}" {% if opt == s.value %}selected{% endif %}>
+            {{ (s.option_labels and s.option_labels[opt]) or opt|capitalize }}
+          </option>
+          {% endfor %}
+        </select>
+        {% if s.help %}<p style="font-size:11px; color:#9ca3af; margin:5px 0 0;">{{ s.help }}</p>{% endif %}
+      </div>
+      {% endfor %}
+
+      <div id="taxModePreviewBox" style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:10px; padding:14px 16px; margin-bottom:20px;">
+        <p style="color:#9ca3af; font-size:11px; font-weight:700; margin:0 0 8px; letter-spacing:.03em; text-transform:uppercase;">Example — ₹1,000 rate at 18% GST</p>
+        <div id="taxModePreviewList" style="display:grid; grid-template-columns:1fr 1fr; gap:5px 20px; font-family:monospace; font-size:13px; color:#374151;"></div>
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="padding:11px 28px;">Save Tax Settings</button>
+    </form>
+
+    <form method="POST" action="{{ url_for('saas_auth.reset_tax_settings') }}"
+          onsubmit="return confirm('Reset Tax & Pricing to the platform default? Your custom value here will be cleared.');"
+          style="margin-top:10px;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" style="background:none; border:none; color:#9ca3af; font-size:12px; text-decoration:underline; cursor:pointer; padding:0;">
+        Reset to platform default
+      </button>
+    </form>
+  </div>
   {% endif %}
 
 </div>
@@ -324,6 +373,35 @@ function updateBizNumberingPreview() {
 }
 
 document.addEventListener("DOMContentLoaded", updateBizNumberingPreview);
+
+function updateTaxModePreview() {
+  const box = document.getElementById("taxModePreviewList");
+  if (!box) return;
+
+  const mode = (document.getElementById("default_tax_mode") || {}).value || "exclusive";
+  const rate = 1000;      // example rate shown to illustrate the mode, matches the card's caption
+  const gstRate = 18;     // example rate, matches the card's caption
+  const round2 = n => Math.round(n * 100) / 100;
+
+  let taxable, tax, total;
+  if (mode === "inclusive") {
+    taxable = round2(rate / (1 + gstRate / 100));
+    tax     = round2(rate - taxable);
+    total   = rate;
+  } else {
+    taxable = rate;
+    tax     = round2(rate * gstRate / 100);
+    total   = round2(taxable + tax);
+  }
+
+  box.innerHTML = `
+    <span style="color:#9ca3af">Rate entered:</span> <span>₹${rate.toFixed(2)}</span>
+    <span style="color:#9ca3af">Taxable Value:</span> <span style="color:#4f46e5">₹${taxable.toFixed(2)}</span>
+    <span style="color:#9ca3af">GST (${gstRate}%):</span> <span style="color:#4f46e5">₹${tax.toFixed(2)}</span>
+    <span style="color:#9ca3af">Grand Total:</span> <span style="color:#4f46e5">₹${total.toFixed(2)}</span>
+  `;
+}
+document.addEventListener("DOMContentLoaded", updateTaxModePreview);
 {% endif %}
 </script>
 {% endblock %}

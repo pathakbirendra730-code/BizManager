@@ -17,7 +17,12 @@
       {% endif %}
     </div>
     <div class="pos-date" id="posDate"></div>
-    <div><span id="supplyLabel" class="badge badge-info">INTRA-STATE</span></div>
+    <div>
+      <span id="supplyLabel" class="badge badge-info">INTRA-STATE</span>
+      <span class="badge {{ 'badge-warning' if tax_mode == 'inclusive' else 'badge-secondary' }}" title="Set in Business Settings → Tax & Pricing">
+        {{ 'TAX INCLUSIVE' if tax_mode == 'inclusive' else 'TAX EXCLUSIVE' }}
+      </span>
+    </div>
   </div>
 
   <div class="pos-search-bar">
@@ -29,7 +34,9 @@
 
   <div class="cart-wrapper">
     <table class="table cart-table" id="cartTable">
-      <thead><tr><th>#</th><th>Product</th><th>HSN</th><th>GST%</th><th>Price</th><th>Qty</th><th>Taxable</th><th>Tax</th><th>Total</th><th></th></tr></thead>
+      <thead><tr><th>#</th><th>Product</th><th>HSN</th><th>GST%</th>
+        <th id="priceColHeader">{{ 'Rate (incl. GST)' if tax_mode == 'inclusive' else 'Rate (excl. GST)' }}</th>
+        <th>Qty</th><th>Taxable</th><th>Tax</th><th>Total</th><th></th></tr></thead>
       <tbody id="cartBody">
         <tr id="emptyCart"><td colspan="10" class="text-center text-muted py-4">Cart empty — search a product above.</td></tr>
       </tbody>
@@ -77,7 +84,7 @@
   <div class="card pos-card">
     <div class="card-header"><h4>🧮 GST Bill Summary</h4></div>
     <div class="card-body">
-      <div class="summary-row"><span>Subtotal</span><span id="sSubtotal">₹0.00</span></div>
+      <div class="summary-row"><span id="subtotalLabel">{{ 'Amount (incl. GST)' if tax_mode == 'inclusive' else 'Subtotal' }}</span><span id="sSubtotal">₹0.00</span></div>
       <div class="summary-row">
         <span>Discount</span>
         <input type="number" id="discPct" class="form-control form-control-sm inline-input"
@@ -159,6 +166,7 @@
 const BIZ_STATE   = "{{ biz.state_code if biz else '27' }}";
 const CURRENCY    = "₹";
 const DEFAULT_GST = 18;
+const TAX_MODE    = "{{ tax_mode }}";   // 'exclusive' or 'inclusive' — set in Business Settings → Tax & Pricing
 
 let cart = [];
 let supplyType = "intra";
@@ -177,10 +185,29 @@ function updateSupplyType() {
 
 function round2(n) { return Math.round(n * 100) / 100; }
 
-function calcItemGst(unitPrice, qty, gstRate) {
-  const taxable = unitPrice * qty;
+function calcItemGst(amount, gstRate) {
+  // `amount` is the entered-rate basis already multiplied by quantity
+  // (and, when called from recalc(), scaled for order-level discount) —
+  // its meaning depends on TAX_MODE: the taxable value if exclusive, or
+  // the GST-inclusive gross if inclusive.
+  if (TAX_MODE === "inclusive") {
+    // Derive taxable by division, tax as the REMAINDER — never adds GST
+    // independently, so amount+tax always reconstructs exactly to `amount`.
+    const taxable = round2(gstRate ? amount / (1 + gstRate / 100) : amount);
+    const tax     = round2(amount - taxable);
+    if (supplyType === "inter") {
+      return { taxable, cgst: 0, sgst: 0, igst: tax, tax };
+    }
+    const half = round2(tax / 2);
+    return { taxable, cgst: half, sgst: round2(tax - half), igst: 0, tax };
+  }
+  // Tax Exclusive — ORIGINAL, unmodified math (independent cgst/sgst
+  // rounding, not a split of a combined total; see utils/tax_helpers.py
+  // for why that distinction matters for exact regression-safety).
+  const taxable = amount;
   if (supplyType === "inter") {
-    return { taxable, cgst: 0, sgst: 0, igst: round2(taxable * gstRate / 100), tax: round2(taxable * gstRate / 100) };
+    const igst = round2(taxable * gstRate / 100);
+    return { taxable, cgst: 0, sgst: 0, igst, tax: igst };
   }
   const half = round2(taxable * gstRate / 200);
   return { taxable, cgst: half, sgst: half, igst: 0, tax: half * 2 };
@@ -229,7 +256,7 @@ function renderCart() {
     recalc(); return;
   }
   tbody.innerHTML = cart.map((item, i) => {
-    const g = calcItemGst(item.unit_price, item.quantity, item.gst_rate);
+    const g = calcItemGst(item.unit_price * item.quantity, item.gst_rate);
     return `<tr>
       <td>${i+1}</td>
       <td><strong>${item.product_name}</strong></td>
@@ -259,30 +286,25 @@ function setGst(i, v)    { cart[i].gst_rate = Math.max(0, parseFloat(v)||0); ren
 function removeItem(i)   { cart.splice(i, 1); renderCart(); }
 function clearCart()     { cart = []; renderCart(); }
 
-// ── Totals recalc — direct weighted calculation (no dead first pass) ──────────
+// ── Totals recalc — mirrors utils/tax_helpers.py's scaled-sum pattern so
+// screen totals always match what billing.py::save_invoice() computes and
+// stores (Update_029 requirement: screen and PDF must always agree). ──────
 function recalc() {
-  const subtotal = cart.reduce((s, item) => s + item.unit_price * item.quantity, 0);
+  const grossSubtotal = cart.reduce((s, item) => s + item.unit_price * item.quantity, 0);
   const discPct  = parseFloat(document.getElementById("discPct").value) || 0;
-  const discAmt  = round2(subtotal * discPct / 100);
-  const taxable  = round2(subtotal - discAmt);
-  const scale    = subtotal > 0 ? taxable / subtotal : 1;
+  const discAmt  = round2(grossSubtotal * discPct / 100);
+  const scale    = grossSubtotal > 0 ? round2(grossSubtotal - discAmt) / grossSubtotal : 1;
 
-  let cgst = 0, sgst = 0, igst = 0, totalTax = 0;
+  let taxable = 0, cgst = 0, sgst = 0, igst = 0, totalTax = 0;
   cart.forEach(item => {
-    const itemTaxable = item.unit_price * item.quantity * scale;
-    if (supplyType === "intra") {
-      const half = round2(itemTaxable * item.gst_rate / 200);
-      cgst += half; sgst += half; totalTax += half * 2;
-    } else {
-      const full = round2(itemTaxable * item.gst_rate / 100);
-      igst += full; totalTax += full;
-    }
+    const g = calcItemGst(item.unit_price * item.quantity * scale, item.gst_rate);
+    taxable += g.taxable; cgst += g.cgst; sgst += g.sgst; igst += g.igst; totalTax += g.tax;
   });
-  cgst = round2(cgst); sgst = round2(sgst); igst = round2(igst); totalTax = round2(totalTax);
+  taxable = round2(taxable); cgst = round2(cgst); sgst = round2(sgst); igst = round2(igst); totalTax = round2(totalTax);
   const grand = round2(taxable + totalTax);
 
   const $ = id => document.getElementById(id);
-  $("sSubtotal").textContent  = CURRENCY + subtotal.toFixed(2);
+  $("sSubtotal").textContent  = CURRENCY + grossSubtotal.toFixed(2);
   $("sDiscount").textContent  = "–" + CURRENCY + discAmt.toFixed(2);
   $("sTaxable").textContent   = CURRENCY + taxable.toFixed(2);
   $("sCgst").textContent      = CURRENCY + cgst.toFixed(2);

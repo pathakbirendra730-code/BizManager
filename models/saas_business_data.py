@@ -481,6 +481,23 @@ def _init_sqlite(c):
         if col not in existing_pur_cols:
             c.execute(f"ALTER TABLE saas_purchases ADD COLUMN {col} {defn}")
 
+    # Update_029: tax_mode — stamps whether THIS specific document was
+    # calculated Tax Exclusive or Tax Inclusive, at the moment it was
+    # created. Deliberately NOT looked up live from business_settings on
+    # every read — a business can change its default tax mode later, and
+    # that must never reinterpret or reformat a document that was already
+    # calculated and saved under the old mode (same "stamp it, don't
+    # recompute it" principle Update_027 already used for doc_prefix/
+    # doc_fy/doc_sequence). Existing rows get NULL, which callers treat
+    # as 'exclusive' — the only mode that existed before this update, so
+    # every pre-existing document displays and behaves exactly as it did.
+    existing_inv_cols = {row[1] for row in c.execute("PRAGMA table_info(saas_invoices)").fetchall()}
+    if "tax_mode" not in existing_inv_cols:
+        c.execute("ALTER TABLE saas_invoices ADD COLUMN tax_mode TEXT")
+    existing_pur_cols = {row[1] for row in c.execute("PRAGMA table_info(saas_purchases)").fetchall()}
+    if "tax_mode" not in existing_pur_cols:
+        c.execute("ALTER TABLE saas_purchases ADD COLUMN tax_mode TEXT")
+
     # ── hsn_master — shared GST reference table (global, not tenant-scoped) ────
     # This is the one table from the old models/database.py legacy schema that's
     # still genuinely read by live features (Products, GST). Ported here so it
@@ -799,6 +816,12 @@ def _init_postgres(c):
     for col, defn in [("doc_prefix", "VARCHAR(10)"), ("doc_fy", "VARCHAR(10)"), ("doc_sequence", "INTEGER")]:
         c.execute(f"ALTER TABLE saas_invoices ADD COLUMN IF NOT EXISTS {col} {defn}")
         c.execute(f"ALTER TABLE saas_purchases ADD COLUMN IF NOT EXISTS {col} {defn}")
+
+    # Update_029: tax_mode — see the SQLite branch's comment for the full
+    # rationale (stamped per-document at creation time, never recomputed
+    # live from the business's current default).
+    c.execute("ALTER TABLE saas_invoices ADD COLUMN IF NOT EXISTS tax_mode VARCHAR(10)")
+    c.execute("ALTER TABLE saas_purchases ADD COLUMN IF NOT EXISTS tax_mode VARCHAR(10)")
 
     # ── hsn_master — shared GST reference table (global, not tenant-scoped) ────
     # Postgres equivalent of the SQLite version above — see that one's comment.

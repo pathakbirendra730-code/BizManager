@@ -16,7 +16,12 @@
       {% endif %}
     </div>
     <div class="pos-date" id="posDate"></div>
-    <div><span id="supplyLabel" class="badge badge-info">INTRA-STATE</span></div>
+    <div>
+      <span id="supplyLabel" class="badge badge-info">INTRA-STATE</span>
+      <span class="badge {{ 'badge-warning' if tax_mode == 'inclusive' else 'badge-secondary' }}" title="Set in Business Settings → Tax & Pricing">
+        {{ 'TAX INCLUSIVE' if tax_mode == 'inclusive' else 'TAX EXCLUSIVE' }}
+      </span>
+    </div>
   </div>
 
   <div class="card" style="padding:10px 14px;margin-bottom:0">
@@ -50,7 +55,7 @@
     <table class="table cart-table">
       <thead><tr>
         <th>#</th><th>Product</th><th>HSN</th><th>GST%</th>
-        <th>Cost Price</th><th>Qty</th><th>Taxable</th><th>Tax</th><th>Total</th><th></th>
+        <th id="priceColHeader">{{ 'Cost (incl. GST)' if tax_mode == 'inclusive' else 'Cost (excl. GST)' }}</th><th>Qty</th><th>Taxable</th><th>Tax</th><th>Total</th><th></th>
       </tr></thead>
       <tbody id="cartBody">
         <tr id="emptyCart"><td colspan="10" class="text-center text-muted py-4">
@@ -89,7 +94,7 @@
   <div class="card pos-card">
     <div class="card-header"><h4>🧮 Purchase Summary (Input Tax)</h4></div>
     <div class="card-body">
-      <div class="summary-row"><span>Subtotal</span><span id="sSubtotal">₹0.00</span></div>
+      <div class="summary-row"><span>{{ 'Amount (incl. GST)' if tax_mode == 'inclusive' else 'Subtotal' }}</span><span id="sSubtotal">₹0.00</span></div>
       <div class="summary-row">
         <span>Discount %</span>
         <input type="number" id="discPct" class="form-control form-control-sm inline-input"
@@ -149,6 +154,7 @@
 const BIZ_STATE   = "{{ biz.state_code if biz else '27' }}";
 const CURRENCY    = "₹";
 const DEFAULT_GST = 18;
+const TAX_MODE    = "{{ tax_mode }}";   // 'exclusive' or 'inclusive' — set in Business Settings → Tax & Pricing
 let items = [];
 let supplyType = "intra";
 
@@ -167,8 +173,23 @@ function updateSupplyType() {
 }
 
 function r2(n) { return Math.round(n * 100) / 100; }
-function calcGst(price, qty, rate) {
-  const taxable = price * qty;
+function calcGst(amount, rate) {
+  // `amount` is whatever the caller has already prepared as the entered-
+  // rate basis (row display passes it unrounded, exactly like the
+  // original; recalc() passes it pre-rounded, also exactly like the
+  // original — see call sites) — its meaning depends on TAX_MODE: the
+  // taxable value if exclusive, the GST-inclusive gross if inclusive.
+  if (TAX_MODE === "inclusive") {
+    const taxable = r2(rate ? amount / (1 + rate / 100) : amount);
+    const tax     = r2(amount - taxable);  // remainder, never added independently
+    if (supplyType === "inter") {
+      return { taxable, cgst: 0, sgst: 0, igst: tax, tax };
+    }
+    const half = r2(tax / 2);
+    return { taxable, cgst: half, sgst: r2(tax - half), igst: 0, tax };
+  }
+  // Tax Exclusive — ORIGINAL, unmodified math
+  const taxable = amount;
   if (supplyType === "inter") {
     return { taxable, cgst:0, sgst:0, igst: r2(taxable*rate/100), tax: r2(taxable*rate/100) };
   }
@@ -210,7 +231,7 @@ function renderItems() {
     recalc(); return;
   }
   tbody.innerHTML = items.map((item, i) => {
-    const g = calcGst(item.unit_price, item.quantity, item.gst_rate);
+    const g = calcGst(item.unit_price * item.quantity, item.gst_rate);
     return `<tr>
       <td>${i+1}</td>
       <td><strong>${item.product_name}</strong></td>
@@ -241,24 +262,33 @@ function removeItem(i) { items.splice(i,1); renderItems(); }
 function clearItems()  { items=[]; renderItems(); }
 
 function recalc() {
-  const subtotal = items.reduce((s,i)=>s+i.unit_price*i.quantity,0);
+  const grossSubtotal = items.reduce((s,i)=>s+i.unit_price*i.quantity,0);
   const discPct  = parseFloat(document.getElementById("discPct").value)||0;
-  const discAmt  = r2(subtotal*discPct/100);
-  const taxable  = r2(subtotal-discAmt);
-  const scale    = subtotal>0 ? taxable/subtotal : 1;
-  let cgst=0,sgst=0,igst=0;
+  const discAmt  = r2(grossSubtotal*discPct/100);
+  const scale    = grossSubtotal>0 ? r2(grossSubtotal-discAmt)/grossSubtotal : 1;
+
+  let taxableSum=0, cgst=0, sgst=0, igst=0;
   items.forEach(item=>{
-    const it = r2(item.unit_price*item.quantity*scale);
-    if (supplyType==="intra") { cgst+=r2(it*item.gst_rate/200); sgst+=r2(it*item.gst_rate/200); }
-    else { igst+=r2(it*item.gst_rate/100); }
+    const amt = r2(item.unit_price*item.quantity*scale);  // pre-rounded, same as original
+    const g = calcGst(amt, item.gst_rate);
+    taxableSum += g.taxable; cgst += g.cgst; sgst += g.sgst; igst += g.igst;
   });
   cgst=r2(cgst); sgst=r2(sgst); igst=r2(igst);
+
+  // Tax Exclusive: taxable computed via the ORIGINAL direct formula
+  // (unchanged — not a sum of per-item values), so exclusive-mode
+  // purchases are byte-for-byte identical to pre-Update_029 behavior.
+  // Tax Inclusive: there IS no simple direct formula (taxable is
+  // derived per-item via division), so it's the sum of per-item
+  // derived values instead — the only mode where this differs.
+  const taxable = TAX_MODE === "inclusive" ? r2(taxableSum) : r2(grossSubtotal - discAmt);
+
   const totalTax=r2(cgst+sgst+igst);
   const grand=r2(taxable+totalTax);
   const paid=parseFloat(document.getElementById("paidAmount").value)||0;
 
   const $=id=>document.getElementById(id);
-  $("sSubtotal").textContent=CURRENCY+subtotal.toFixed(2);
+  $("sSubtotal").textContent=CURRENCY+grossSubtotal.toFixed(2);
   $("sDiscount").textContent="–"+CURRENCY+discAmt.toFixed(2);
   $("sTaxable").textContent=CURRENCY+taxable.toFixed(2);
   $("sCgst").textContent=CURRENCY+cgst.toFixed(2);
