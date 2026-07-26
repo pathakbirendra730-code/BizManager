@@ -43,7 +43,7 @@ from modules.saas_auth      import saas_auth_bp
 from modules.app_admin      import app_admin_bp
 from modules.unified_login  import unified_bp
 from modules.public         import public_bp
-from modules.saas_business  import saas_customers_bp, saas_products_bp, saas_suppliers_bp, saas_billing_bp, saas_purchase_bp, saas_finance_bp, saas_emi_bp, saas_reports_bp, saas_gst_bp, saas_accounts_bp, saas_dashboard_bp
+from modules.saas_business  import saas_customers_bp, saas_products_bp, saas_suppliers_bp, saas_billing_bp, saas_purchase_bp, saas_finance_bp, saas_emi_bp, saas_reports_bp, saas_gst_bp, saas_accounts_bp, saas_dashboard_bp, saas_returns_bp
 
 
 def create_app():
@@ -133,6 +133,7 @@ def create_app():
     app.register_blueprint(saas_gst_bp)                           # /biz/gst — SaaS-native
     app.register_blueprint(saas_accounts_bp)                      # /biz/accounts — SaaS-native
     app.register_blueprint(saas_dashboard_bp)                     # /biz/dashboard — SaaS-native
+    app.register_blueprint(saas_returns_bp)                       # /biz/returns — Credit/Debit Notes (Update_030)
 
     # ── Root redirect ──────────────────────────────────────────────────────────
     @app.route("/")

@@ -62,6 +62,8 @@ PERMISSIONS = {
     "view_supplier":     "manager",
     "manage_supplier":   "manager",
     "backup_restore":    "owner",
+    "create_credit_note": "manager",
+    "create_debit_note":  "manager",
 }
 
 

@@ -10,7 +10,7 @@ This is a parallel schema to models/database.py — it does NOT touch
 or migrate the legacy shop/users data. SaaS businesses get their own
 fully isolated operational tables from day one.
 
-Tables (16):
+Tables (20):
   saas_categories       — product categories, per business
   saas_products         — inventory items, per business
   saas_customers         — customer master, per business
@@ -28,6 +28,10 @@ Tables (16):
   saas_document_sequences — FY-based document numbering counters (Update_027)
   saas_business_settings  — per-business setting overrides, e.g. Document
                              Numbering format (Update_027 follow-up)
+  saas_credit_notes       — Sales Return documents (Update_030)
+  saas_credit_note_items  — per-line Sales Return GST reversal breakdown
+  saas_debit_notes        — Purchase Return documents (Update_030)
+  saas_debit_note_items   — per-line Purchase Return GST reversal breakdown
 
 HSN master (hsn_master) remains global/shared — it's reference data,
 not tenant data, so the existing legacy table is reused as-is via a
@@ -498,6 +502,141 @@ def _init_sqlite(c):
     if "tax_mode" not in existing_pur_cols:
         c.execute("ALTER TABLE saas_purchases ADD COLUMN tax_mode TEXT")
 
+    # ── Update_030: Credit/Debit Notes & Returns ────────────────────────────────
+    # returned_quantity tracks, per original invoice/purchase line, how much
+    # of that line has already been returned via a credit/debit note so
+    # far — the single source of truth both for (a) preventing a line from
+    # being over-returned across multiple partial returns, and (b) netting
+    # returned quantity out of the P&L's COGS calculation (see
+    # modules/saas_business/accounts.py), which otherwise would keep
+    # counting the full original quantity's cost even after some of it
+    # was returned. Defaults to 0 for every existing row — pre-existing
+    # invoices/purchases behave exactly as before until a return is
+    # actually made against them.
+    existing_ii_cols = {row[1] for row in c.execute("PRAGMA table_info(saas_invoice_items)").fetchall()}
+    if "returned_quantity" not in existing_ii_cols:
+        c.execute("ALTER TABLE saas_invoice_items ADD COLUMN returned_quantity REAL NOT NULL DEFAULT 0")
+    existing_pi_cols = {row[1] for row in c.execute("PRAGMA table_info(saas_purchase_items)").fetchall()}
+    if "returned_quantity" not in existing_pi_cols:
+        c.execute("ALTER TABLE saas_purchase_items ADD COLUMN returned_quantity REAL NOT NULL DEFAULT 0")
+
+    # saas_credit_notes / saas_credit_note_items — Sales Return documents.
+    # Mirrors saas_invoices/saas_invoice_items in shape deliberately (same
+    # column set for the tax breakdown), so every existing helper that
+    # already knows how to total/display an invoice-shaped row (PDF
+    # layout, GST aggregation patterns) generalizes to a credit note with
+    # minimal new code. invoice_item_id links each returned line back to
+    # the exact original line it reverses, which is what
+    # returned_quantity above gets incremented against.
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_credit_notes (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        business_id         INTEGER NOT NULL REFERENCES saas_businesses(id) ON DELETE CASCADE,
+        credit_note_number  TEXT    NOT NULL,
+        doc_prefix          TEXT,
+        doc_fy              TEXT,
+        doc_sequence        INTEGER,
+        invoice_id          INTEGER NOT NULL REFERENCES saas_invoices(id),
+        invoice_number      TEXT    DEFAULT '',
+        customer_id         INTEGER REFERENCES saas_customers(id),
+        customer_name       TEXT    DEFAULT '',
+        customer_gstin      TEXT    DEFAULT '',
+        customer_state      TEXT    DEFAULT '',
+        supply_type         TEXT    DEFAULT 'intra',
+        reason              TEXT    DEFAULT '',
+        taxable_amount      REAL    NOT NULL DEFAULT 0,
+        cgst_amount         REAL    NOT NULL DEFAULT 0,
+        sgst_amount         REAL    NOT NULL DEFAULT 0,
+        igst_amount         REAL    NOT NULL DEFAULT 0,
+        total_tax           REAL    NOT NULL DEFAULT 0,
+        total               REAL    NOT NULL DEFAULT 0,
+        refund_method       TEXT    DEFAULT 'credit',
+        tax_mode            TEXT,
+        notes               TEXT    DEFAULT '',
+        created_by          INTEGER REFERENCES saas_users(id),
+        created_at          TEXT    DEFAULT (datetime('now')),
+        UNIQUE(credit_note_number, business_id)
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_crnote_biz ON saas_credit_notes(business_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_crnote_inv ON saas_credit_notes(invoice_id)")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_credit_note_items (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        credit_note_id    INTEGER NOT NULL REFERENCES saas_credit_notes(id) ON DELETE CASCADE,
+        business_id       INTEGER NOT NULL REFERENCES saas_businesses(id),
+        invoice_item_id   INTEGER NOT NULL REFERENCES saas_invoice_items(id),
+        product_id        INTEGER REFERENCES saas_products(id),
+        product_name      TEXT    NOT NULL,
+        hsn_code          TEXT    DEFAULT '',
+        quantity          REAL    NOT NULL DEFAULT 0,
+        unit_price        REAL    NOT NULL DEFAULT 0,
+        taxable_amount    REAL    NOT NULL DEFAULT 0,
+        gst_rate          REAL    NOT NULL DEFAULT 0,
+        cgst_rate         REAL    NOT NULL DEFAULT 0,
+        sgst_rate         REAL    NOT NULL DEFAULT 0,
+        igst_rate         REAL    NOT NULL DEFAULT 0,
+        cgst_amount       REAL    NOT NULL DEFAULT 0,
+        sgst_amount       REAL    NOT NULL DEFAULT 0,
+        igst_amount       REAL    NOT NULL DEFAULT 0,
+        total_price       REAL    NOT NULL DEFAULT 0
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_crnoteitem_note ON saas_credit_note_items(credit_note_id)")
+
+    # saas_debit_notes / saas_debit_note_items — Purchase Return documents.
+    # Same design as the credit note pair above, mirrored for the
+    # purchase side (supplier instead of customer, links back to
+    # saas_purchases / saas_purchase_items).
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_debit_notes (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        business_id         INTEGER NOT NULL REFERENCES saas_businesses(id) ON DELETE CASCADE,
+        debit_note_number   TEXT    NOT NULL,
+        doc_prefix          TEXT,
+        doc_fy              TEXT,
+        doc_sequence        INTEGER,
+        purchase_id         INTEGER NOT NULL REFERENCES saas_purchases(id),
+        purchase_number     TEXT    DEFAULT '',
+        supplier_id         INTEGER REFERENCES saas_suppliers(id),
+        supplier_name       TEXT    DEFAULT '',
+        supplier_gstin      TEXT    DEFAULT '',
+        supply_type         TEXT    DEFAULT 'intra',
+        reason              TEXT    DEFAULT '',
+        taxable_amount      REAL    NOT NULL DEFAULT 0,
+        cgst_amount         REAL    NOT NULL DEFAULT 0,
+        sgst_amount         REAL    NOT NULL DEFAULT 0,
+        igst_amount         REAL    NOT NULL DEFAULT 0,
+        total_tax           REAL    NOT NULL DEFAULT 0,
+        total               REAL    NOT NULL DEFAULT 0,
+        refund_method       TEXT    DEFAULT 'credit',
+        tax_mode            TEXT,
+        notes               TEXT    DEFAULT '',
+        created_by          INTEGER REFERENCES saas_users(id),
+        created_at          TEXT    DEFAULT (datetime('now')),
+        UNIQUE(debit_note_number, business_id)
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_dbnote_biz ON saas_debit_notes(business_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_dbnote_pur ON saas_debit_notes(purchase_id)")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_debit_note_items (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        debit_note_id     INTEGER NOT NULL REFERENCES saas_debit_notes(id) ON DELETE CASCADE,
+        business_id       INTEGER NOT NULL REFERENCES saas_businesses(id),
+        purchase_item_id  INTEGER NOT NULL REFERENCES saas_purchase_items(id),
+        product_id        INTEGER REFERENCES saas_products(id),
+        product_name      TEXT    NOT NULL,
+        hsn_code          TEXT    DEFAULT '',
+        quantity          REAL    NOT NULL DEFAULT 0,
+        unit_price        REAL    NOT NULL DEFAULT 0,
+        taxable_amount    REAL    NOT NULL DEFAULT 0,
+        gst_rate          REAL    NOT NULL DEFAULT 0,
+        cgst_rate         REAL    NOT NULL DEFAULT 0,
+        sgst_rate         REAL    NOT NULL DEFAULT 0,
+        igst_rate         REAL    NOT NULL DEFAULT 0,
+        cgst_amount       REAL    NOT NULL DEFAULT 0,
+        sgst_amount       REAL    NOT NULL DEFAULT 0,
+        igst_amount       REAL    NOT NULL DEFAULT 0,
+        total_price       REAL    NOT NULL DEFAULT 0
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_dbnoteitem_note ON saas_debit_note_items(debit_note_id)")
+
     # ── hsn_master — shared GST reference table (global, not tenant-scoped) ────
     # This is the one table from the old models/database.py legacy schema that's
     # still genuinely read by live features (Products, GST). Ported here so it
@@ -822,6 +961,117 @@ def _init_postgres(c):
     # live from the business's current default).
     c.execute("ALTER TABLE saas_invoices ADD COLUMN IF NOT EXISTS tax_mode VARCHAR(10)")
     c.execute("ALTER TABLE saas_purchases ADD COLUMN IF NOT EXISTS tax_mode VARCHAR(10)")
+
+    # ── Update_030: Credit/Debit Notes & Returns ────────────────────────────────
+    # See the SQLite branch's comments for the full rationale on all of
+    # the below — this is the Postgres equivalent, same shapes.
+    c.execute("ALTER TABLE saas_invoice_items ADD COLUMN IF NOT EXISTS returned_quantity NUMERIC(12,3) NOT NULL DEFAULT 0")
+    c.execute("ALTER TABLE saas_purchase_items ADD COLUMN IF NOT EXISTS returned_quantity NUMERIC(12,3) NOT NULL DEFAULT 0")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_credit_notes (
+        id                  SERIAL PRIMARY KEY,
+        business_id         INTEGER NOT NULL REFERENCES saas_businesses(id) ON DELETE CASCADE,
+        credit_note_number  VARCHAR(50) NOT NULL,
+        doc_prefix          VARCHAR(10),
+        doc_fy              VARCHAR(10),
+        doc_sequence        INTEGER,
+        invoice_id          INTEGER NOT NULL REFERENCES saas_invoices(id),
+        invoice_number      VARCHAR(50) DEFAULT '',
+        customer_id         INTEGER REFERENCES saas_customers(id),
+        customer_name       VARCHAR(300) DEFAULT '',
+        customer_gstin      VARCHAR(20)  DEFAULT '',
+        customer_state      VARCHAR(50)  DEFAULT '',
+        supply_type         VARCHAR(20)  DEFAULT 'intra',
+        reason              TEXT DEFAULT '',
+        taxable_amount      NUMERIC(12,2) NOT NULL DEFAULT 0,
+        cgst_amount         NUMERIC(12,2) NOT NULL DEFAULT 0,
+        sgst_amount         NUMERIC(12,2) NOT NULL DEFAULT 0,
+        igst_amount         NUMERIC(12,2) NOT NULL DEFAULT 0,
+        total_tax           NUMERIC(12,2) NOT NULL DEFAULT 0,
+        total               NUMERIC(12,2) NOT NULL DEFAULT 0,
+        refund_method       VARCHAR(20) DEFAULT 'credit',
+        tax_mode            VARCHAR(10),
+        notes               TEXT DEFAULT '',
+        created_by          INTEGER REFERENCES saas_users(id),
+        created_at          TIMESTAMP DEFAULT NOW(),
+        UNIQUE(credit_note_number, business_id)
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_crnote_biz ON saas_credit_notes(business_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_crnote_inv ON saas_credit_notes(invoice_id)")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_credit_note_items (
+        id                SERIAL PRIMARY KEY,
+        credit_note_id    INTEGER NOT NULL REFERENCES saas_credit_notes(id) ON DELETE CASCADE,
+        business_id       INTEGER NOT NULL REFERENCES saas_businesses(id),
+        invoice_item_id   INTEGER NOT NULL REFERENCES saas_invoice_items(id),
+        product_id        INTEGER REFERENCES saas_products(id),
+        product_name      VARCHAR(300) NOT NULL,
+        hsn_code          VARCHAR(20) DEFAULT '',
+        quantity          NUMERIC(12,3) NOT NULL DEFAULT 0,
+        unit_price        NUMERIC(12,2) NOT NULL DEFAULT 0,
+        taxable_amount    NUMERIC(12,2) NOT NULL DEFAULT 0,
+        gst_rate          NUMERIC(5,2)  NOT NULL DEFAULT 0,
+        cgst_rate         NUMERIC(5,2)  NOT NULL DEFAULT 0,
+        sgst_rate         NUMERIC(5,2)  NOT NULL DEFAULT 0,
+        igst_rate         NUMERIC(5,2)  NOT NULL DEFAULT 0,
+        cgst_amount       NUMERIC(12,2) NOT NULL DEFAULT 0,
+        sgst_amount       NUMERIC(12,2) NOT NULL DEFAULT 0,
+        igst_amount       NUMERIC(12,2) NOT NULL DEFAULT 0,
+        total_price       NUMERIC(12,2) NOT NULL DEFAULT 0
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_crnoteitem_note ON saas_credit_note_items(credit_note_id)")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_debit_notes (
+        id                  SERIAL PRIMARY KEY,
+        business_id         INTEGER NOT NULL REFERENCES saas_businesses(id) ON DELETE CASCADE,
+        debit_note_number   VARCHAR(50) NOT NULL,
+        doc_prefix          VARCHAR(10),
+        doc_fy              VARCHAR(10),
+        doc_sequence        INTEGER,
+        purchase_id         INTEGER NOT NULL REFERENCES saas_purchases(id),
+        purchase_number     VARCHAR(50) DEFAULT '',
+        supplier_id         INTEGER REFERENCES saas_suppliers(id),
+        supplier_name       VARCHAR(300) DEFAULT '',
+        supplier_gstin      VARCHAR(20)  DEFAULT '',
+        supply_type         VARCHAR(20)  DEFAULT 'intra',
+        reason              TEXT DEFAULT '',
+        taxable_amount      NUMERIC(12,2) NOT NULL DEFAULT 0,
+        cgst_amount         NUMERIC(12,2) NOT NULL DEFAULT 0,
+        sgst_amount         NUMERIC(12,2) NOT NULL DEFAULT 0,
+        igst_amount         NUMERIC(12,2) NOT NULL DEFAULT 0,
+        total_tax           NUMERIC(12,2) NOT NULL DEFAULT 0,
+        total               NUMERIC(12,2) NOT NULL DEFAULT 0,
+        refund_method       VARCHAR(20) DEFAULT 'credit',
+        tax_mode            VARCHAR(10),
+        notes               TEXT DEFAULT '',
+        created_by          INTEGER REFERENCES saas_users(id),
+        created_at          TIMESTAMP DEFAULT NOW(),
+        UNIQUE(debit_note_number, business_id)
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_dbnote_biz ON saas_debit_notes(business_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_dbnote_pur ON saas_debit_notes(purchase_id)")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS saas_debit_note_items (
+        id                SERIAL PRIMARY KEY,
+        debit_note_id     INTEGER NOT NULL REFERENCES saas_debit_notes(id) ON DELETE CASCADE,
+        business_id       INTEGER NOT NULL REFERENCES saas_businesses(id),
+        purchase_item_id  INTEGER NOT NULL REFERENCES saas_purchase_items(id),
+        product_id        INTEGER REFERENCES saas_products(id),
+        product_name      VARCHAR(300) NOT NULL,
+        hsn_code          VARCHAR(20) DEFAULT '',
+        quantity          NUMERIC(12,3) NOT NULL DEFAULT 0,
+        unit_price        NUMERIC(12,2) NOT NULL DEFAULT 0,
+        taxable_amount    NUMERIC(12,2) NOT NULL DEFAULT 0,
+        gst_rate          NUMERIC(5,2)  NOT NULL DEFAULT 0,
+        cgst_rate         NUMERIC(5,2)  NOT NULL DEFAULT 0,
+        sgst_rate         NUMERIC(5,2)  NOT NULL DEFAULT 0,
+        igst_rate         NUMERIC(5,2)  NOT NULL DEFAULT 0,
+        cgst_amount       NUMERIC(12,2) NOT NULL DEFAULT 0,
+        sgst_amount       NUMERIC(12,2) NOT NULL DEFAULT 0,
+        igst_amount       NUMERIC(12,2) NOT NULL DEFAULT 0,
+        total_price       NUMERIC(12,2) NOT NULL DEFAULT 0
+    )""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_saas_dbnoteitem_note ON saas_debit_note_items(debit_note_id)")
 
     # ── hsn_master — shared GST reference table (global, not tenant-scoped) ────
     # Postgres equivalent of the SQLite version above — see that one's comment.

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Purchase Returns{% endblock %}
+{% block page_title %}Purchase Returns (Debit Notes){% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>↩ Purchase Returns — {{ biz.name if biz else '' }}</h2>
+</div>
+
+<div class="summary-bar">
+  <span>📋 <strong>{{ notes|length }}</strong> debit notes</span>
+  <span>💸 Total Reversed: <strong>₹{{ "%.2f"|format(notes|sum(attribute='total')) }}</strong></span>
+</div>
+
+<div class="card"><div class="card-body p-0">
+  <table class="table table-hover">
+    <thead><tr>
+      <th>Debit Note</th><th>Against Purchase</th><th>Supplier</th>
+      <th>Taxable</th><th>GST</th><th>Total</th><th>Refund</th><th>Date</th><th>Actions</th>
+    </tr></thead>
+    <tbody>
+      {% for note in notes %}
+      <tr>
+        <td><strong>{{ note.debit_note_number }}</strong></td>
+        <td><a href="{{ url_for('saas_purchase.view', pid=note.purchase_id) }}">{{ note.purchase_number }}</a></td>
+        <td>{{ m.supplier_link(note.supplier_id, note.supplier_name or '—') }}</td>
+        <td>₹{{ "%.2f"|format(note.taxable_amount) }}</td>
+        <td>₹{{ "%.2f"|format(note.total_tax) }}</td>
+        <td><strong>₹{{ "%.2f"|format(note.total) }}</strong></td>
+        <td>{{ note.refund_method|capitalize }}</td>
+        <td class="text-muted small">{{ note.created_at | dtfmt(10) }}</td>
+        <td class="actions-col">
+          <a href="{{ url_for('saas_returns.view_debit_note', dn_id=note.id) }}"
+             class="btn btn-sm btn-secondary" target="_blank">👁 View</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="text-center text-muted py-4">No purchase returns yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div></div>
+{% endblock %}

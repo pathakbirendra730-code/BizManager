@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Purchase Return{% endblock %}
+{% block page_title %}Purchase Return — {{ purchase.purchase_number }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>↩ Purchase Return against {{ purchase.purchase_number }}</h2>
+  <a href="{{ url_for('saas_purchase.view', pid=purchase.id) }}" class="btn btn-secondary">← Back to Purchase</a>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <p style="margin-bottom:14px;color:#6b7280;font-size:13px">
+      Supplier: <strong>{{ purchase.supplier_name or '—' }}</strong>
+      &nbsp;·&nbsp; Purchase Total: <strong>₹{{ "%.2f"|format(purchase.total) }}</strong>
+      &nbsp;·&nbsp; Tax Mode: <strong>{{ 'Inclusive' if (purchase.tax_mode or 'exclusive') == 'inclusive' else 'Exclusive' }}</strong>
+    </p>
+
+    <table class="table" id="returnItemsTable">
+      <thead><tr>
+        <th>Product</th><th>Purchased Qty</th><th>Already Returned</th><th>Remaining</th>
+        <th>Return Qty</th><th>Rate</th><th>Line Taxable</th><th>Line Total</th>
+      </tr></thead>
+      <tbody>
+        {% for item in items %}
+        <tr data-purchase-item-id="{{ item.id }}"
+            data-quantity="{{ item.quantity }}"
+            data-remaining="{{ item.remaining_qty }}"
+            data-unit-price="{{ item.unit_price }}"
+            data-taxable="{{ item.taxable_amount }}"
+            data-cgst="{{ item.cgst_amount }}"
+            data-sgst="{{ item.sgst_amount }}"
+            data-igst="{{ item.igst_amount }}"
+            data-gst-rate="{{ item.gst_rate }}">
+          <td><strong>{{ item.product_name }}</strong> <span class="text-muted small">{{ item.hsn_code }}</span></td>
+          <td>{{ item.quantity }}</td>
+          <td>{{ item.returned_quantity or 0 }}</td>
+          <td>{{ item.remaining_qty }}</td>
+          <td>
+            <input type="number" class="form-control return-qty-input" style="width:100px"
+                   min="0" max="{{ item.remaining_qty }}" step="any" value="0"
+                   oninput="updateReturnPreview()">
+          </td>
+          <td>₹{{ "%.2f"|format(item.unit_price) }}</td>
+          <td class="line-taxable">₹0.00</td>
+          <td class="line-total">₹0.00</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+      <div class="form-group">
+        <label>Reason for Return</label>
+        <input type="text" id="returnReason" class="form-control" placeholder="e.g. Damaged goods, wrong item, quality issue…">
+      </div>
+      <div class="form-group">
+        <label>Refund Method</label>
+        <select id="refundMethod" class="form-control">
+          {% if purchase.supplier_id %}<option value="credit">Credit — reduce amount owed to supplier</option>{% endif %}
+          <option value="cash">Cash refund</option>
+          <option value="bank">Bank refund</option>
+          <option value="upi">UPI refund</option>
+          <option value="card">Card refund</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="returnPreviewBox" style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:16px;margin-top:10px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:14px">
+        <span>Taxable Value Reversed</span><span id="pvTaxable" style="text-align:right">₹0.00</span>
+        <span>Input GST (ITC) Reversed</span><span id="pvTax" style="text-align:right">₹0.00</span>
+        <span style="font-weight:700">Debit Note Total</span><span id="pvTotal" style="text-align:right;font-weight:700">₹0.00</span>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" style="margin-top:16px;padding:11px 28px" id="saveReturnBtn" onclick="saveReturn()">
+      ✅ Issue Debit Note
+    </button>
+  </div>
+</div>
+
+<script>
+function round2(n) { return Math.round(n * 100) / 100; }
+
+function updateReturnPreview() {
+  let taxable = 0, tax = 0;
+  document.querySelectorAll("#returnItemsTable tbody tr").forEach(row => {
+    const origQty = parseFloat(row.dataset.quantity);
+    const input = row.querySelector(".return-qty-input");
+    let qty = parseFloat(input.value) || 0;
+    const remaining = parseFloat(row.dataset.remaining);
+    if (qty > remaining) { qty = remaining; input.value = remaining; }
+    if (qty < 0) { qty = 0; input.value = 0; }
+
+    const fraction = origQty ? qty / origQty : 0;
+    const lineTaxable = round2(parseFloat(row.dataset.taxable) * fraction);
+    const lineCgst = round2(parseFloat(row.dataset.cgst) * fraction);
+    const lineSgst = round2(parseFloat(row.dataset.sgst) * fraction);
+    const lineIgst = round2(parseFloat(row.dataset.igst) * fraction);
+    const lineTax = round2(lineCgst + lineSgst + lineIgst);
+    const lineTotal = round2(lineTaxable + lineTax);
+
+    row.querySelector(".line-taxable").textContent = "₹" + lineTaxable.toFixed(2);
+    row.querySelector(".line-total").textContent = "₹" + lineTotal.toFixed(2);
+
+    taxable += lineTaxable; tax += lineTax;
+  });
+  taxable = round2(taxable); tax = round2(tax);
+  const total = round2(taxable + tax);
+  document.getElementById("pvTaxable").textContent = "₹" + taxable.toFixed(2);
+  document.getElementById("pvTax").textContent = "₹" + tax.toFixed(2);
+  document.getElementById("pvTotal").textContent = "₹" + total.toFixed(2);
+}
+
+async function saveReturn() {
+  const items = [];
+  document.querySelectorAll("#returnItemsTable tbody tr").forEach(row => {
+    const qty = parseFloat(row.querySelector(".return-qty-input").value) || 0;
+    if (qty > 0) {
+      items.push({ purchase_item_id: parseInt(row.dataset.purchaseItemId, 10), quantity: qty });
+    }
+  });
+  if (!items.length) { alert("Enter a return quantity for at least one item."); return; }
+
+  const btn = document.getElementById("saveReturnBtn");
+  btn.disabled = true; btn.textContent = "Processing…";
+
+  const payload = {
+    items: items,
+    reason: document.getElementById("returnReason").value,
+    refund_method: document.getElementById("refundMethod").value,
+    csrf_token: "{{ csrf_token }}"
+  };
+
+  try {
+    const res = await fetch("{{ url_for('saas_returns.purchase_return_save', purchase_id=purchase.id) }}", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.success) {
+      window.location.href = "{{ url_for('saas_returns.view_debit_note', dn_id=0) }}".replace("/0", "/" + data.debit_note_id);
+    } else {
+      alert(data.message || "Failed to save return.");
+      btn.disabled = false; btn.textContent = "✅ Issue Debit Note";
+    }
+  } catch (e) {
+    alert("Network error. Please try again.");
+    btn.disabled = false; btn.textContent = "✅ Issue Debit Note";
+  }
+}
+
+document.addEventListener("DOMContentLoaded", updateReturnPreview);
+</script>
+{% endblock %}

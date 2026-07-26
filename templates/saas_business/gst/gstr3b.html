@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}GSTR-3B Summary{% endblock %}
+{% block page_title %}GSTR-3B Summary{% endblock %}
+{% block content %}
+<div class="card filter-card">
+  <form method="GET" class="filter-form">
+    <label style="font-weight:600">Month:</label>
+    <input type="month" name="month" value="{{ month }}" class="form-control">
+    <button type="submit" class="btn btn-primary">🔍 Load</button>
+  </form>
+</div>
+
+<div class="summary-bar">
+  <span>🏛 GSTIN: <strong>{{ biz.gstin or 'N/A' }}</strong></span>
+  <span>📅 Period: <strong>{{ month }}</strong></span>
+  <span>🏪 <strong>{{ biz.name }}</strong></span>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3>3.1 — Outward Supplies (Net of Credit Notes)</h3></div>
+  <div class="card-body p-0">
+    <table class="table table-hover">
+      <thead><tr><th></th><th>Taxable Value</th><th>CGST</th><th>SGST</th><th>IGST</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Gross Outward Supplies (Sales Invoices)</td>
+          <td>₹{{ "%.2f"|format(outward.taxable) }}</td>
+          <td>₹{{ "%.2f"|format(outward.cgst) }}</td>
+          <td>₹{{ "%.2f"|format(outward.sgst) }}</td>
+          <td>₹{{ "%.2f"|format(outward.igst) }}</td>
+        </tr>
+        <tr>
+          <td>Less: Credit Notes (Sales Returns)</td>
+          <td style="color:#dc2626">–₹{{ "%.2f"|format(cdnr.taxable) }}</td>
+          <td style="color:#dc2626">–₹{{ "%.2f"|format(cdnr.cgst) }}</td>
+          <td style="color:#dc2626">–₹{{ "%.2f"|format(cdnr.sgst) }}</td>
+          <td style="color:#dc2626">–₹{{ "%.2f"|format(cdnr.igst) }}</td>
+        </tr>
+        <tr style="background:var(--surface2);font-weight:bold">
+          <td>Net Outward Supplies (Taxable Value)</td>
+          <td>₹{{ "%.2f"|format(net_outward.taxable) }}</td>
+          <td>₹{{ "%.2f"|format(net_outward.cgst) }}</td>
+          <td>₹{{ "%.2f"|format(net_outward.sgst) }}</td>
+          <td>₹{{ "%.2f"|format(net_outward.igst) }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3>4 — Eligible ITC (Net of Debit Notes)</h3></div>
+  <div class="card-body p-0">
+    <table class="table table-hover">
+      <thead><tr><th></th><th>Taxable Value</th><th>CGST</th><th>SGST</th><th>IGST</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Gross ITC (Purchase Bills)</td>
+          <td>₹{{ "%.2f"|format(itc.taxable) }}</td>
+          <td>₹{{ "%.2f"|format(itc.cgst) }}</td>
+          <td>₹{{ "%.2f"|format(itc.sgst) }}</td>
+          <td>₹{{ "%.2f"|format(itc.igst) }}</td>
+        </tr>
+        <tr>
+          <td>Less: Debit Notes (Purchase Returns)</td>
+          <td style="color:#dc2626">–₹{{ "%.2f"|format(dnr.taxable) }}</td>
+          <td style="color:#dc2626">–₹{{ "%.2f"|format(dnr.cgst) }}</td>
+          <td style="color:#dc2626">–₹{{ "%.2f"|format(dnr.sgst) }}</td>
+          <td style="color:#dc2626">–₹{{ "%.2f"|format(dnr.igst) }}</td>
+        </tr>
+        <tr style="background:var(--surface2);font-weight:bold">
+          <td>Net ITC Available</td>
+          <td>₹{{ "%.2f"|format(net_itc.taxable) }}</td>
+          <td>₹{{ "%.2f"|format(net_itc.cgst) }}</td>
+          <td>₹{{ "%.2f"|format(net_itc.sgst) }}</td>
+          <td>₹{{ "%.2f"|format(net_itc.igst) }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3>💰 Net Tax Payable</h3></div>
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center">
+      <div><div style="font-size:20px;font-weight:bold;color:#2563eb">₹{{ "%.2f"|format(net_payable.cgst) }}</div><div class="text-muted small">CGST Payable</div></div>
+      <div><div style="font-size:20px;font-weight:bold;color:#2563eb">₹{{ "%.2f"|format(net_payable.sgst) }}</div><div class="text-muted small">SGST Payable</div></div>
+      <div><div style="font-size:20px;font-weight:bold;color:#2563eb">₹{{ "%.2f"|format(net_payable.igst) }}</div><div class="text-muted small">IGST Payable</div></div>
+      <div><div style="font-size:24px;font-weight:bold;color:#16a34a">₹{{ "%.2f"|format(net_payable.total) }}</div><div class="text-muted small">Total Payable</div></div>
+    </div>
+    <p class="text-muted small" style="margin-top:14px">
+      Net Tax Payable = max(0, Net Outward Tax − Net ITC) per head (CGST/SGST/IGST) — this summary doesn't
+      account for any electronic cash/credit ledger balance already available with the department; verify
+      against your actual GST portal balance before filing.
+    </p>
+  </div>
+</div>
+{% endblock %}

@@ -65,6 +65,9 @@
         <td class="actions-col">
           <a href="{{ url_for('saas_purchase.view', pid=p.id) }}" class="btn btn-sm btn-secondary" target="_blank">👁 View</a>
           {% if p.status != 'cancelled' and saas_role in ('owner', 'manager') %}
+          <a href="{{ url_for('saas_returns.purchase_return_new', purchase_id=p.id) }}" class="btn btn-sm btn-warning">↩ Return</a>
+          {% endif %}
+          {% if p.status != 'cancelled' and saas_role in ('owner', 'manager') %}
           <form method="POST" action="{{ url_for('saas_purchase.cancel', pid=p.id) }}" style="display:inline"
                 onsubmit="return confirm('Cancel {{ p.purchase_number }}? Stock will be reversed.')">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

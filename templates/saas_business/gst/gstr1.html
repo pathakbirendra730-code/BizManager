@@ -119,4 +119,52 @@
     </table>
   </div>
 </div>
+
+<!-- Update_030: CDNR — Credit/Debit Notes Registered -->
+<div class="card">
+  <div class="card-header">
+    <h3>↩ CDNR — Credit Notes Registered (Sales Returns)</h3>
+    <span class="badge badge-warning">{{ cdnr|length }} credit notes</span>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover">
+      <thead><tr>
+        <th>Credit Note No.</th><th>Against Invoice</th><th>Customer</th><th>GSTIN</th><th>Supply</th>
+        <th>Taxable</th><th>CGST</th><th>SGST</th><th>IGST</th><th>Total Tax</th><th>Note Total</th><th>Date</th>
+      </tr></thead>
+      <tbody>
+        {% for note in cdnr %}
+        <tr>
+          <td><strong>{{ note.credit_note_number }}</strong></td>
+          <td>{{ note.invoice_number }}</td>
+          <td>{{ note.customer_name }}</td>
+          <td>{{ note.customer_gstin or '—' }}</td>
+          <td>{{ note.supply_type }}</td>
+          <td>₹{{ "%.2f"|format(note.taxable_amount) }}</td>
+          <td>₹{{ "%.2f"|format(note.cgst_amount) }}</td>
+          <td>₹{{ "%.2f"|format(note.sgst_amount) }}</td>
+          <td>₹{{ "%.2f"|format(note.igst_amount) }}</td>
+          <td>₹{{ "%.2f"|format(note.total_tax) }}</td>
+          <td><strong>₹{{ "%.2f"|format(note.total) }}</strong></td>
+          <td class="text-muted small">{{ note.note_date }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="12" class="text-center text-muted py-3">No credit notes issued for {{ month }}.</td></tr>
+        {% endfor %}
+        {% if cdnr %}
+        <tr style="background:var(--surface2);font-weight:bold">
+          <td colspan="5">CDNR Total ({{ cdnr|length }} notes)</td>
+          <td>₹{{ "%.2f"|format(cdnr_total) }}</td>
+          <td>₹{{ "%.2f"|format(cdnr|sum(attribute='cgst_amount')) }}</td>
+          <td>₹{{ "%.2f"|format(cdnr|sum(attribute='sgst_amount')) }}</td>
+          <td>₹{{ "%.2f"|format(cdnr|sum(attribute='igst_amount')) }}</td>
+          <td>₹{{ "%.2f"|format(cdnr|sum(attribute='total_tax')) }}</td>
+          <td>₹{{ "%.2f"|format(cdnr|sum(attribute='total')) }}</td>
+          <td></td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}

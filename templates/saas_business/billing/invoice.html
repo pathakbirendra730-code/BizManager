@@ -49,6 +49,10 @@ td{padding:7px 9px;border-bottom:1px solid #eee;font-size:11px}
 
 <button class="print-btn" onclick="window.print()">🖨 Print / Save PDF</button>
 <button class="back-btn"  onclick="history.back()">← Back</button>
+{% if invoice.status != 'cancelled' and saas_role in ('owner','manager') %}
+<a class="back-btn no-print" style="display:inline-block;background:#fef3c7;color:#92400e;text-decoration:none;text-align:center"
+   href="{{ url_for('saas_returns.sales_return_new', invoice_id=invoice.id) }}">↩ Sales Return</a>
+{% endif %}
 
 {% if invoice.status in ('unpaid','partial') and saas_role in ('owner','manager') %}
 <div class="pay-form no-print">

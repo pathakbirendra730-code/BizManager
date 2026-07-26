@@ -49,6 +49,10 @@
          class="nav-item {% if request.endpoint=='saas_billing.receivables' %}active{% endif %}">
         <span class="nav-icon">💳</span><span class="nav-label">Receivables</span>
       </a>
+      <a href="{{ url_for('saas_returns.sales_returns_list') }}"
+         class="nav-item {% if request.endpoint=='saas_returns.sales_returns_list' %}active{% endif %}">
+        <span class="nav-icon">↩️</span><span class="nav-label">Sales Returns</span>
+      </a>
 
       <div class="nav-section-title">INVENTORY</div>
       <a href="{{ url_for('saas_products.index') }}"
@@ -80,6 +84,10 @@
       <a href="{{ url_for('saas_purchase.history') }}"
          class="nav-item {% if request.endpoint=='saas_purchase.history' %}active{% endif %}">
         <span class="nav-icon">📥</span><span class="nav-label">Purchase History</span>
+      </a>
+      <a href="{{ url_for('saas_returns.purchase_returns_list') }}"
+         class="nav-item {% if request.endpoint=='saas_returns.purchase_returns_list' %}active{% endif %}">
+        <span class="nav-icon">↩️</span><span class="nav-label">Purchase Returns</span>
       </a>
       {% endif %}
 

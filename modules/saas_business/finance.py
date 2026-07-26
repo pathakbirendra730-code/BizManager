@@ -85,15 +85,19 @@ def index():
             WHERE business_id={p} AND TO_CHAR(expense_date,'YYYY-MM')={p}""",
         (biz_id, month)
     )
+    # Update_030: net out returned_quantity, same fix and rationale as
+    # accounts.py's profit_loss() COGS query — kept in lockstep per the
+    # Update_026 comment there (this page and the P&L must never compute
+    # a different COGS for the same period).
     m_cogs = saas_fetchone(
-        f"""SELECT COALESCE(SUM(ii.quantity * pr.cost_price), 0) as cogs
+        f"""SELECT COALESCE(SUM((ii.quantity - COALESCE(ii.returned_quantity,0)) * pr.cost_price), 0) as cogs
             FROM saas_invoice_items ii
             JOIN saas_invoices i ON i.id = ii.invoice_id
             JOIN saas_products pr ON pr.id = ii.product_id
             WHERE ii.business_id={p} AND strftime('%Y-%m', i.created_at)={p}
               AND i.status IN ('paid','partial')"""
         if not _is_postgres() else
-        f"""SELECT COALESCE(SUM(ii.quantity * pr.cost_price), 0) as cogs
+        f"""SELECT COALESCE(SUM((ii.quantity - COALESCE(ii.returned_quantity,0)) * pr.cost_price), 0) as cogs
             FROM saas_invoice_items ii
             JOIN saas_invoices i ON i.id = ii.invoice_id
             JOIN saas_products pr ON pr.id = ii.product_id

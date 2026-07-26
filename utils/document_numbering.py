@@ -108,14 +108,13 @@ from utils.business_settings import (
 
 
 # Every document type this engine supports, and which setting key holds
-# its configurable prefix. Only sales_invoice and purchase_bill are
-# currently wired into a real document-creation route (see
-# modules/saas_business/billing.py and purchase.py) - the other four have
-# no creation feature anywhere in the app yet (confirmed by exhaustive
-# route search, same finding as the dead sales/purchase-return functions
-# from Update_024/025), so calling generate_document_number() for them
-# works correctly today (verified with tests) but nothing in the app does
-# so yet. See CHANGELOG_Update_027.md for the full explanation.
+# its configurable prefix. sales_invoice and purchase_bill are wired into
+# billing.py/purchase.py; credit_note and debit_note are wired into
+# modules/saas_business/returns.py (Update_030 — Sales/Purchase Returns).
+# quotation and delivery_challan still have no creation route anywhere in
+# the app (confirmed by exhaustive route search) — calling
+# generate_document_number() for them works correctly today (verified
+# with tests) but nothing in the app does so yet.
 DOCUMENT_TYPES = {
     "sales_invoice":    "prefix_sales_invoice",
     "purchase_bill":    "prefix_purchase_bill",

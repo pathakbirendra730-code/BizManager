@@ -139,10 +139,106 @@ def gstr1():
         (biz_id, month)
     )
 
+    # ── Update_030: CDNR — Credit/Debit Notes Registered ──────────────────────
+    # A real GSTR-1 has a dedicated section for credit/debit notes issued
+    # in the period, reported against the period they were ISSUED in —
+    # not retroactively folded into the original invoice's month, even if
+    # the original sale happened earlier. This matches actual GST filing
+    # practice (a return in month 2 for a sale in month 1 is reported as
+    # a CDNR entry in month 2's GSTR-1, not a restatement of month 1's).
+    cdnr = saas_fetchall(
+        f"""SELECT credit_note_number, invoice_number, customer_name, customer_gstin,
+                   supply_type, taxable_amount, cgst_amount, sgst_amount,
+                   igst_amount, total_tax, total, reason,
+                   DATE(created_at) as note_date
+            FROM saas_credit_notes
+            WHERE business_id={p} AND {mf}={p}
+            ORDER BY created_at""",
+        (biz_id, month)
+    )
+    cdnr_total = round(sum(float(r["taxable_amount"]) for r in cdnr), 2)
+
     biz = saas_fetchone(f"SELECT * FROM saas_businesses WHERE id={p}", (biz_id,))
 
     return render_template("saas_business/gst/gstr1.html",
-                           biz=biz, month=month, b2b=b2b, b2c=b2c)
+                           biz=biz, month=month, b2b=b2b, b2c=b2c,
+                           cdnr=cdnr, cdnr_total=cdnr_total)
+
+
+@saas_gst_bp.route("/gstr3b")
+@saas_business_required
+@permission_required("view_gst")
+def gstr3b():
+    """
+    Update_030: GSTR-3B summary — outward tax liability (net of Credit
+    Notes issued this period) and ITC available (net of Debit Notes
+    issued this period), giving Net Tax Payable. Reads only already-
+    computed, already-stored columns from saas_invoices/saas_purchases/
+    saas_credit_notes/saas_debit_notes — no independent recalculation,
+    so this can never disagree with what GSTR-1/HSN Summary or the
+    ledger's Output GST / ITC accounts show for the same period.
+    """
+    biz_id = get_tenant_id()
+    month  = request.args.get("month", datetime.now().strftime("%Y-%m"))
+    p = P()
+    mf = _month_filter_clause("created_at")
+
+    outward = saas_fetchone(
+        f"""SELECT COALESCE(SUM(taxable_amount),0) as taxable,
+                   COALESCE(SUM(cgst_amount),0) as cgst,
+                   COALESCE(SUM(sgst_amount),0) as sgst,
+                   COALESCE(SUM(igst_amount),0) as igst
+            FROM saas_invoices WHERE business_id={p} AND {mf}={p} AND status IN ('paid','partial')""",
+        (biz_id, month)
+    )
+    cdnr = saas_fetchone(
+        f"""SELECT COALESCE(SUM(taxable_amount),0) as taxable,
+                   COALESCE(SUM(cgst_amount),0) as cgst,
+                   COALESCE(SUM(sgst_amount),0) as sgst,
+                   COALESCE(SUM(igst_amount),0) as igst
+            FROM saas_credit_notes WHERE business_id={p} AND {mf}={p}""",
+        (biz_id, month)
+    )
+    itc = saas_fetchone(
+        f"""SELECT COALESCE(SUM(taxable_amount),0) as taxable,
+                   COALESCE(SUM(cgst_amount),0) as cgst,
+                   COALESCE(SUM(sgst_amount),0) as sgst,
+                   COALESCE(SUM(igst_amount),0) as igst
+            FROM saas_purchases WHERE business_id={p} AND {mf}={p} AND status != 'cancelled'""",
+        (biz_id, month)
+    )
+    dnr = saas_fetchone(
+        f"""SELECT COALESCE(SUM(taxable_amount),0) as taxable,
+                   COALESCE(SUM(cgst_amount),0) as cgst,
+                   COALESCE(SUM(sgst_amount),0) as sgst,
+                   COALESCE(SUM(igst_amount),0) as igst
+            FROM saas_debit_notes WHERE business_id={p} AND {mf}={p}""",
+        (biz_id, month)
+    )
+
+    net_outward = {
+        "taxable": round(float(outward["taxable"]) - float(cdnr["taxable"]), 2),
+        "cgst":    round(float(outward["cgst"])    - float(cdnr["cgst"]), 2),
+        "sgst":    round(float(outward["sgst"])    - float(cdnr["sgst"]), 2),
+        "igst":    round(float(outward["igst"])    - float(cdnr["igst"]), 2),
+    }
+    net_itc = {
+        "taxable": round(float(itc["taxable"]) - float(dnr["taxable"]), 2),
+        "cgst":    round(float(itc["cgst"])    - float(dnr["cgst"]), 2),
+        "sgst":    round(float(itc["sgst"])    - float(dnr["sgst"]), 2),
+        "igst":    round(float(itc["igst"])    - float(dnr["igst"]), 2),
+    }
+    net_payable = {
+        "cgst": round(max(0.0, net_outward["cgst"] - net_itc["cgst"]), 2),
+        "sgst": round(max(0.0, net_outward["sgst"] - net_itc["sgst"]), 2),
+        "igst": round(max(0.0, net_outward["igst"] - net_itc["igst"]), 2),
+    }
+    net_payable["total"] = round(net_payable["cgst"] + net_payable["sgst"] + net_payable["igst"], 2)
+
+    biz = saas_fetchone(f"SELECT * FROM saas_businesses WHERE id={p}", (biz_id,))
+    return render_template("saas_business/gst/gstr3b.html",
+                           biz=biz, month=month, outward=outward, cdnr=cdnr, itc=itc, dnr=dnr,
+                           net_outward=net_outward, net_itc=net_itc, net_payable=net_payable)
 
 
 # ════════════════════════════════ HSN-WISE SUMMARY ═════════════════════════════
@@ -154,25 +250,42 @@ def hsn_summary():
     biz_id = get_tenant_id()
     month  = request.args.get("month", datetime.now().strftime("%Y-%m"))
     p = P()
-    mf = _month_filter_clause("i.created_at")
+    mf_items = _month_filter_clause("i.created_at")
+    mf_notes = _month_filter_clause("cn.created_at")
 
+    # Update_030: nets Sales Return quantities/amounts out of the HSN-wise
+    # totals via UNION ALL with credit_note_items (negated) — a returned
+    # unit must not keep inflating the HSN Summary just because the
+    # original invoice line itself is never edited. Netted within the
+    # SAME reporting month a credit note was actually issued in (not
+    # retroactively folded into the original sale's month), matching how
+    # GSTR-1's CDNR section works — see gstr1() above for the same
+    # principle.
     rows = saas_fetchall(
-        f"""SELECT ii.hsn_code,
-                   MAX(ii.product_name) as description,
-                   SUM(ii.quantity) as total_qty,
-                   COALESCE(SUM(ii.taxable_amount),0) as taxable,
-                   ii.gst_rate,
-                   COALESCE(SUM(ii.cgst_amount),0) as cgst,
-                   COALESCE(SUM(ii.sgst_amount),0) as sgst,
-                   COALESCE(SUM(ii.igst_amount),0) as igst,
-                   COALESCE(SUM(ii.cgst_amount+ii.sgst_amount+ii.igst_amount),0) as total_tax
-            FROM saas_invoice_items ii
-            JOIN saas_invoices i ON i.id = ii.invoice_id
-            WHERE ii.business_id={p} AND {mf}={p} AND i.status IN ('paid','partial')
-              AND ii.hsn_code != ''
-            GROUP BY ii.hsn_code, ii.gst_rate
+        f"""SELECT hsn_code, MAX(description) as description, gst_rate,
+                   SUM(qty) as total_qty, SUM(taxable) as taxable,
+                   SUM(cgst) as cgst, SUM(sgst) as sgst, SUM(igst) as igst,
+                   SUM(cgst)+SUM(sgst)+SUM(igst) as total_tax
+            FROM (
+                SELECT ii.hsn_code as hsn_code, ii.product_name as description,
+                       ii.gst_rate as gst_rate, ii.quantity as qty,
+                       ii.taxable_amount as taxable, ii.cgst_amount as cgst,
+                       ii.sgst_amount as sgst, ii.igst_amount as igst
+                FROM saas_invoice_items ii
+                JOIN saas_invoices i ON i.id = ii.invoice_id
+                WHERE ii.business_id={p} AND {mf_items}={p} AND i.status IN ('paid','partial')
+                  AND ii.hsn_code != ''
+                UNION ALL
+                SELECT cni.hsn_code, cni.product_name, cni.gst_rate,
+                       -cni.quantity, -cni.taxable_amount, -cni.cgst_amount,
+                       -cni.sgst_amount, -cni.igst_amount
+                FROM saas_credit_note_items cni
+                JOIN saas_credit_notes cn ON cn.id = cni.credit_note_id
+                WHERE cni.business_id={p} AND {mf_notes}={p} AND cni.hsn_code != ''
+            ) combined
+            GROUP BY hsn_code, gst_rate
             ORDER BY taxable DESC""",
-        (biz_id, month)
+        (biz_id, month, biz_id, month)
     )
 
     biz = saas_fetchone(f"SELECT * FROM saas_businesses WHERE id={p}", (biz_id,))
@@ -225,20 +338,33 @@ def export_hsn():
     biz_id = get_tenant_id()
     month  = request.args.get("month", datetime.now().strftime("%Y-%m"))
     p = P()
-    mf = _month_filter_clause("i.created_at")
+    mf_items = _month_filter_clause("i.created_at")
+    mf_notes = _month_filter_clause("cn.created_at")
 
+    # Update_030: same returns-netting UNION as hsn_summary() above, kept
+    # in lockstep so the CSV export always matches the on-screen report.
     rows = saas_fetchall(
-        f"""SELECT ii.hsn_code, MAX(ii.product_name) as description,
-                   SUM(ii.quantity) as qty, ii.gst_rate,
-                   COALESCE(SUM(ii.taxable_amount),0) as taxable,
-                   COALESCE(SUM(ii.cgst_amount),0) as cgst,
-                   COALESCE(SUM(ii.sgst_amount),0) as sgst,
-                   COALESCE(SUM(ii.igst_amount),0) as igst
-            FROM saas_invoice_items ii
-            JOIN saas_invoices i ON i.id = ii.invoice_id
-            WHERE ii.business_id={p} AND {mf}={p} AND i.status IN ('paid','partial')
-            GROUP BY ii.hsn_code, ii.gst_rate ORDER BY taxable DESC""",
-        (biz_id, month)
+        f"""SELECT hsn_code, MAX(description) as description, gst_rate,
+                   SUM(qty) as qty, SUM(taxable) as taxable,
+                   SUM(cgst) as cgst, SUM(sgst) as sgst, SUM(igst) as igst
+            FROM (
+                SELECT ii.hsn_code as hsn_code, ii.product_name as description,
+                       ii.gst_rate as gst_rate, ii.quantity as qty,
+                       ii.taxable_amount as taxable, ii.cgst_amount as cgst,
+                       ii.sgst_amount as sgst, ii.igst_amount as igst
+                FROM saas_invoice_items ii
+                JOIN saas_invoices i ON i.id = ii.invoice_id
+                WHERE ii.business_id={p} AND {mf_items}={p} AND i.status IN ('paid','partial')
+                UNION ALL
+                SELECT cni.hsn_code, cni.product_name, cni.gst_rate,
+                       -cni.quantity, -cni.taxable_amount, -cni.cgst_amount,
+                       -cni.sgst_amount, -cni.igst_amount
+                FROM saas_credit_note_items cni
+                JOIN saas_credit_notes cn ON cn.id = cni.credit_note_id
+                WHERE cni.business_id={p} AND {mf_notes}={p}
+            ) combined
+            GROUP BY hsn_code, gst_rate ORDER BY taxable DESC""",
+        (biz_id, month, biz_id, month)
     )
 
     buf = io.StringIO()

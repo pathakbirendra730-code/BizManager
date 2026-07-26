@@ -397,13 +397,13 @@ SETTINGS_SCHEMA = [
         "key": "prefix_credit_note", "label": "Credit Note Prefix", "type": "text",
         "default": lambda: _env_default("DOC_PREFIX_CREDIT_NOTE", "CN"),
         "validate": _validate_max_len(10), "group": "Document Numbering",
-        "help": "Reserved for when Credit Notes are supported — no document type in the app issues one yet.",
+        "help": "Used for Sales Return credit notes (Update_030).",
     },
     {
         "key": "prefix_debit_note", "label": "Debit Note Prefix", "type": "text",
         "default": lambda: _env_default("DOC_PREFIX_DEBIT_NOTE", "DN"),
         "validate": _validate_max_len(10), "group": "Document Numbering",
-        "help": "Reserved for when Debit Notes are supported — no document type in the app issues one yet.",
+        "help": "Used for Purchase Return debit notes (Update_030).",
     },
     {
         "key": "prefix_quotation", "label": "Quotation Prefix", "type": "text",

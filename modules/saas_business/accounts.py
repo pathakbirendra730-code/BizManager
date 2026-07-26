@@ -587,13 +587,21 @@ def profit_loss():
         (biz_id,)
     )
 
-    # ── Update_026: COGS — same join/filter shape as finance.py's dashboard ──
+    # ── Update_026/030: COGS — same join/filter shape as finance.py's dashboard ──
     # (quantity actually sold this period × each product's cost_price), so
     # this page and the Finance Dashboard can never compute a different
     # number for the same period. See CHANGELOG_Update_026.md §2 for the
     # verification that proves this.
+    #
+    # Update_030: (ii.quantity - ii.returned_quantity) instead of plain
+    # ii.quantity — a unit that's since been returned via a Credit Note
+    # must not keep counting toward COGS, or gross profit would be
+    # understated (revenue reversed via sales_returns below, but the
+    # matching cost never reversed). This is what "Reverse COGS
+    # correctly" means for this app's COGS model (computed by formula,
+    # not a separate ledger entry — see returns.py's module docstring).
     cogs_row = saas_fetchone(
-        f"""SELECT COALESCE(SUM(ii.quantity * pr.cost_price), 0) as cogs
+        f"""SELECT COALESCE(SUM((ii.quantity - COALESCE(ii.returned_quantity,0)) * pr.cost_price), 0) as cogs
             FROM saas_invoice_items ii
             JOIN saas_invoices i ON i.id = ii.invoice_id
             JOIN saas_products pr ON pr.id = ii.product_id
@@ -604,32 +612,28 @@ def profit_loss():
     cogs = round(float(cogs_row["cogs"] or 0), 2)
 
     # ── Sales Returns ──
-    # returns_expense is a real, dedicated account (seeded for every
-    # business) but no route in the app currently posts to it —
-    # record_sales_return() exists in the ledger engine and is fully
-    # correct, but is unreachable (confirmed dead code, Update_024/025).
-    # This always reports 0 today; queried for real so it's correct the
-    # moment that feature exists, rather than a fixed placeholder.
+    # Update_030: real data — saas_credit_notes now exists and
+    # returns.py::sales_return_save() is a live, reachable route (this
+    # was previously read from the returns_expense ledger account, which
+    # is still correct since record_sales_return() posts there too;
+    # reading the dedicated table directly is simpler and matches the
+    # same date_filter already used for sales/purchases above).
     sales_returns_row = saas_fetchone(
-        f"""SELECT COALESCE(SUM(jl.debit - jl.credit),0) as t
-            FROM saas_journal_lines jl
-            JOIN saas_journal_entries je ON je.id = jl.entry_id
-            JOIN saas_chart_of_accounts coa ON coa.id = jl.account_id
-            WHERE jl.business_id={p} AND coa.account_subtype='returns_expense'
-              AND je.status='posted' AND {je_filter}""",
+        f"""SELECT COALESCE(SUM(taxable_amount),0) as t
+            FROM saas_credit_notes WHERE business_id={p} AND {date_filter}""",
         (biz_id,)
     )
-    sales_returns = round(max(0.0, float(sales_returns_row["t"] or 0)), 2)
+    sales_returns = round(float(sales_returns_row["t"] or 0), 2)
 
     # ── Purchase Returns ──
-    # Genuinely no data source at all, even in principle: record_purchase_
-    # return() (also dead code — no route calls it) posts its reversal
-    # straight into the same "cogs" account regular purchases use, by
-    # design (see its docstring), so even if it were wired up there'd be
-    # no way to separate returns from regular purchases in that account
-    # without a schema change. Hardcoded 0 rather than a query that would
-    # look real but can never mean anything — see CHANGELOG §2 for detail.
-    purchase_returns = 0.0
+    # Update_030: real data — saas_debit_notes now exists and
+    # returns.py::purchase_return_save() is a live, reachable route.
+    purchase_returns_row = saas_fetchone(
+        f"""SELECT COALESCE(SUM(taxable_amount),0) as t
+            FROM saas_debit_notes WHERE business_id={p} AND {date_filter}""",
+        (biz_id,)
+    )
+    purchase_returns = round(float(purchase_returns_row["t"] or 0), 2)
 
     # ── Other Income / Other Expenses ──
     # Real, postable accounts (Accounts → Cash Book/Bank Book "Add Entry"
