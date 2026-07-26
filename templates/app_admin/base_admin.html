@@ -76,17 +76,45 @@
     .stat-box .num { font-size: 28px; font-weight: 800; color: #fff; }
     .stat-box .label { font-size: 12px; color: #9ca3af; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
 
-    /* ── Tables ──────────────────────────────────────────────────── */
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    /* ── Tables (Update_031: responsive table system) ──────────────
+       Every admin table is a bare `<table>` directly inside a `.card`
+       with no separating wrapper div (confirmed: every admin list page
+       follows this exact pattern) — so making `.card` itself the
+       horizontal-scroll container gives every admin table this
+       behavior with zero per-template markup changes. Harmless for the
+       many non-table cards (stat boxes, forms) since overflow-x:auto
+       has no visible effect unless content actually overflows. */
+    .card{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    table { width: 100%; border-collapse: collapse; font-size: 13px; min-width:560px; }
+    table.table-auto{min-width:0}
     th { text-align: left; padding: 10px 12px; color: #9ca3af; font-weight: 600;
          text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px;
-         border-bottom: 1px solid #1f2430; }
-    td { padding: 12px; border-bottom: 1px solid #161b26; color: #d1d5db; }
+         border-bottom: 1px solid #1f2430; white-space:nowrap;
+         position:sticky; top:0; background:#11151f; z-index:2; }
+    td { padding: 12px; border-bottom: 1px solid #161b26; color: #d1d5db; white-space:nowrap; }
+    td.wrap, th.wrap { white-space:normal; min-width:200px; }
     tr:hover td { background: #141925; }
+    tbody tr:nth-child(even) td { background: #0e1219; }
+    tbody tr:nth-child(even):hover td { background: #141925; }
+    /* Sticky first column — stays pinned while a wide admin table (e.g.
+       Audit Logs, All Users) scrolls horizontally underneath it. */
+    table:not(.table-no-sticky-col) td:first-child,
+    table:not(.table-no-sticky-col) th:first-child{
+      position:sticky; left:0; z-index:1; background:#11151f;
+      box-shadow:2px 0 5px rgba(0,0,0,.35);
+    }
+    table:not(.table-no-sticky-col) thead th:first-child{ z-index:3; }
+    table:not(.table-no-sticky-col) tbody tr:nth-child(even) td:first-child{ background:#0e1219; }
+    tr.row-link{ cursor:pointer; }
+    tr.row-link:active td{ background:#141925; }
+    @media (max-width:600px){
+      table{ font-size:12px; min-width:480px; }
+      th,td{ padding:8px 9px; }
+    }
 
     .pill {
       font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 99px;
-      text-transform: uppercase; letter-spacing: 0.4px;
+      text-transform: uppercase; letter-spacing: 0.4px; white-space:nowrap; display:inline-block;
     }
     .pill-saas    { background: #1e3a8a33; color: #93c5fd; }
     .pill-legacy  { background: #78350f33; color: #fcd34d; }
@@ -217,6 +245,19 @@
 
   {% block content %}{% endblock %}
 </div>
+
+<script>
+// Update_031: tappable table rows — see static/js/main.js for the full
+// rationale; duplicated here since the admin section uses its own base
+// template/stylesheet, not the main app's shared static/js/main.js.
+document.addEventListener("click", function (e) {
+  const row = e.target.closest("tr.row-link[data-href]");
+  if (!row) return;
+  if (e.target.closest("a, button, input, select, textarea, label, form, .no-row-link")) return;
+  const href = row.dataset.href;
+  if (href) window.location.href = href;
+});
+</script>
 
 {% block extra_js %}{% endblock %}
 </body>

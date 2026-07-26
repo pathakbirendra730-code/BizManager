@@ -48,7 +48,8 @@
     </tr></thead>
     <tbody>
       {% for p in purchases %}
-      <tr class="{% if p.due_amount>0 and p.status!='cancelled' %}row-warning{% elif p.status=='cancelled' %}row-danger{% endif %}">
+      <tr class="row-link {% if p.due_amount>0 and p.status!='cancelled' %}row-warning{% elif p.status=='cancelled' %}row-danger{% endif %}"
+          data-href="{{ url_for('saas_purchase.view', pid=p.id) }}">
         <td><strong>{{ p.purchase_number }}</strong></td>
         <td>{{ m.supplier_link(p.supplier_id, p.supplier_name or '—') }}</td>
         <td>{{ p.bill_number or '—' }}</td>

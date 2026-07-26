@@ -35,7 +35,7 @@
       </thead>
       <tbody>
         {% for c in customers %}
-        <tr>
+        <tr class="row-link" data-href="{{ url_for('saas_customers.history', cid=c.id) }}">
           <td class="text-muted small">{{ loop.index }}</td>
           <td><strong>{{ m.customer_link(c.id, c.name) }}</strong></td>
           <td>{{ c.phone or '—' }}</td>

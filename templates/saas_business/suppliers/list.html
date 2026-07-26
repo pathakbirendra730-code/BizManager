@@ -43,7 +43,7 @@
       </thead>
       <tbody>
         {% for s in suppliers %}
-        <tr>
+        <tr class="row-link" data-href="{{ url_for('saas_suppliers.ledger', sid=s.id) }}">
           <td class="text-muted small">{{ loop.index }}</td>
           <td><strong>{{ m.supplier_link(s.id, s.name) }}</strong><br><small class="text-muted">{{ s.email or '' }}</small></td>
           <td>{{ s.phone or '—' }}</td>

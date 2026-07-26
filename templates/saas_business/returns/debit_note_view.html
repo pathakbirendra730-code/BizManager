@@ -28,6 +28,17 @@ td{padding:7px 9px;border-bottom:1px solid #eee;font-size:11px}
 .back-btn{display:block;margin:0 auto 8px;padding:7px 20px;background:#eee;border:none;border-radius:6px;cursor:pointer}
 .ref-box{background:#f8fafc;padding:8px 14px;border-radius:6px;border:1px solid #e2e8f0;margin-bottom:14px;font-size:11px}
 @media print{.print-btn,.back-btn,.no-print{display:none!important}body{padding:0}}
+@media screen and (max-width:600px){
+  body{padding:10px;font-size:11px}
+  .hdr{flex-direction:column;gap:10px}
+  .doc-meta{text-align:left}
+  .parties{grid-template-columns:1fr}
+  .items-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:10px}
+  .items-scroll table{min-width:640px;margin-bottom:0}
+  th,td{padding:5px 7px;font-size:10.5px}
+  .totals{justify-content:stretch}
+  .tot-table{width:100%}
+}
 </style>
 </head>
 <body>
@@ -76,6 +87,7 @@ td{padding:7px 9px;border-bottom:1px solid #eee;font-size:11px}
 
 <!-- Items -->
 <div class="sec-title" style="margin-bottom:5px">Returned Items</div>
+<div class="items-scroll">
 <table>
   <thead><tr>
     <th>#</th><th>Product</th><th>HSN</th><th>Qty</th><th>Rate (₹)</th>
@@ -101,6 +113,7 @@ td{padding:7px 9px;border-bottom:1px solid #eee;font-size:11px}
     {% endfor %}
   </tbody>
 </table>
+</div>
 
 <!-- GST Breakdown -->
 <div class="gst-box">

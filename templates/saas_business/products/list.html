@@ -55,7 +55,8 @@
         {% for p in products %}
         {% set low = p.stock_quantity <= p.low_stock_threshold %}
         {% set out = p.stock_quantity == 0 %}
-        <tr class="{% if out %}row-danger{% elif low %}row-warning{% endif %}">
+        <tr class="{% if saas_role in ('owner', 'manager') %}row-link{% endif %} {% if out %}row-danger{% elif low %}row-warning{% endif %}"
+            {% if saas_role in ('owner', 'manager') %}data-href="{{ url_for('saas_products.edit', pid=p.id) }}"{% endif %}>
           <td class="text-muted small">{{ loop.index }}</td>
           <td>
             <strong>{{ p.name }}</strong>

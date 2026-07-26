@@ -124,8 +124,30 @@ a:hover{text-decoration:underline}
 textarea.form-control{resize:vertical;min-height:58px}
 select.form-control{cursor:pointer}
 
-/* Tables */
-.table{width:100%;border-collapse:collapse;font-size:.85rem}
+/* ══════════════ Update_031: Responsive Table System ══════════════════
+   Design: `.card-body.p-0` is this app's existing, universal convention
+   for "this card holds nothing but a list table" (confirmed: every
+   single one of the ~30 uses of this exact class pair across the whole
+   app wraps a <table> directly, with zero exceptions). Making THAT rule
+   the horizontal-scroll container means every existing and future
+   list table in every module — Billing, Purchase, GST, Accounts,
+   Finance, Reports, Inventory, Customers, Suppliers, Returns, Dashboard
+   — gets scrollable behavior with sticky header/first-column for free,
+   with no per-template markup changes required. `.table-responsive` is
+   the same behavior as an explicit, opt-in wrapper class for the rare
+   table that isn't already inside a `.card-body.p-0` (e.g. a table
+   embedded directly in page content). */
+.card-body.p-0,.table-responsive{
+  overflow-x:auto;-webkit-overflow-scrolling:touch;
+}
+
+.table{width:100%;border-collapse:collapse;font-size:.85rem;min-width:600px}
+/* Opt-out for small, fixed-shape tables that should never force a
+   horizontal scrollbar (e.g. a 2-column invoice totals summary) —
+   used by the print/PDF-style templates' `.tot-table`/`.info-table`,
+   which already have their own narrow, fixed widths. */
+.table.table-auto{min-width:0}
+
 .table th{background:var(--surface2);color:var(--text-muted);font-weight:700;font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;padding:9px 13px;text-align:left;border-bottom:2px solid var(--border)}
 .table td{padding:9px 13px;border-bottom:1px solid var(--border);vertical-align:middle}
 .table tbody tr:last-child td{border-bottom:none}
@@ -134,6 +156,59 @@ select.form-control{cursor:pointer}
 .row-warning{background:#fffbeb!important}
 [data-theme="dark"] .row-danger{background:#3b1212!important}
 [data-theme="dark"] .row-warning{background:#3b2c0a!important}
+
+/* Sticky header — stays visible while scrolling a long list, and while
+   scrolling horizontally (the header row never disappears in either
+   direction). Needs the nearest scrolling ancestor to be the
+   `.card-body.p-0`/`.table-responsive` container above, which it is. */
+.table thead th{position:sticky;top:0;z-index:2}
+
+/* Sticky first column (Document No.) — the leftmost column stays
+   pinned in view while the rest of a wide table scrolls horizontally
+   underneath it, so you never lose track of which row you're looking
+   at on a narrow screen. Applied to every table by default (harmless
+   on a table that never actually needs to scroll — sticky positioning
+   only has a visible effect once there's overflow to scroll through).
+   Opt out with `.table-no-sticky-col` for the rare table where the
+   first column isn't a meaningful anchor (e.g. a plain "#" row index). */
+.table:not(.table-no-sticky-col) td:first-child,
+.table:not(.table-no-sticky-col) th:first-child{
+  position:sticky;left:0;z-index:1;background:var(--surface);
+  box-shadow:2px 0 5px rgba(0,0,0,.07);
+}
+.table:not(.table-no-sticky-col) thead th:first-child{z-index:3;background:var(--surface2)}
+[data-theme="dark"] .table:not(.table-no-sticky-col) td:first-child{background:var(--surface)}
+
+/* Zebra striping — makes a wide, horizontally-scrolled row easy to
+   track by eye even once its first cell has scrolled past. Sits below
+   the sticky-first-column/hover rules above so those still win. */
+.table tbody tr:nth-child(even) td{background:var(--surface2)}
+[data-theme="dark"] .table tbody tr:nth-child(even) td{background:#1a2436}
+.table tbody tr:nth-child(even):hover td{background:var(--bg)}
+.table:not(.table-no-sticky-col) tbody tr:nth-child(even) td:first-child{background:var(--surface2)}
+[data-theme="dark"] .table:not(.table-no-sticky-col) tbody tr:nth-child(even) td:first-child{background:#1a2436}
+
+/* Prevent unwanted clipping/truncation: a document number, a badge, or
+   an action button never gets cut off or wrapped mid-word — the row
+   scrolls horizontally instead. Opt in to real wrapping with `.wrap`
+   for a genuinely free-text column (e.g. Narration/Description/Reason)
+   where a single unbroken line would be actively less readable. */
+.table td,.table th{white-space:nowrap}
+.table td.wrap,.table th.wrap{white-space:normal;min-width:200px}
+.badge{white-space:nowrap}
+
+/* Tappable row (mobile) — see base.html's tableRowLink() delegate for
+   the click-to-navigate behavior. Applied via `<tr class="row-link"
+   data-href="...">`; a real link/button/input/form inside the row keeps
+   its own behavior (the delegate skips those targets deliberately). */
+.table tr.row-link{cursor:pointer}
+.table tr.row-link:active td{background:var(--bg)}
+
+@media(max-width:700px){
+  .table{font-size:.78rem;min-width:520px}
+  .table th,.table td{padding:8px 10px}
+  .table td.wrap{min-width:140px}
+}
 
 /* Badges */
 .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
@@ -236,7 +311,7 @@ select.form-control{cursor:pointer}
 /* Modal */
 .modal{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center}
 .modal.hidden{display:none}
-.modal-box{background:var(--surface);border-radius:13px;padding:26px;z-index:501;position:relative;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.modal-box{background:var(--surface);border-radius:13px;padding:26px;z-index:501;position:relative;max-width:420px;width:90%;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.25)}
 .modal-box h3{font-size:1.1rem;margin-bottom:9px}
 .modal-overlay{position:absolute;inset:0;background:rgba(0,0,0,.5)}
 
@@ -275,6 +350,11 @@ select.form-control{cursor:pointer}
 .section-divider{font-size:.82rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin:18px 0 11px;padding-bottom:7px;border-bottom:2px solid var(--border)}
 code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:.8rem;color:var(--info)}
 .chart-card{min-height:220px}
+/* Update_031: charts must never force horizontal page overflow on a
+   narrow screen — Chart.js already resizes responsively given a
+   positioned parent, but this is a zero-downside backstop regardless
+   of that JS config. */
+canvas{max-width:100%!important}
 
 /* ══════════════════════════════ TEMPLATE PRODUCTS ════════════════════════════ */
 
@@ -354,9 +434,16 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:.8rem;colo
   .form-row-2,.form-row-3{grid-template-columns:1fr}
   .filter-form{flex-direction:column;align-items:stretch}
   .action-grid{grid-template-columns:1fr 1fr}
-  .table{font-size:.76rem}
-  .table th,.table td{padding:6px 7px}
+  /* .table mobile sizing now lives with the rest of the responsive
+     table system, above (Update_031) — kept in one place so the two
+     can't drift out of sync with each other. */
   .topbar-right .user-badge{display:none}
+  /* Touch targets: .btn-sm is used densely in action columns (View/Pay/
+     Return/Cancel) — bump its tap area on touch screens without
+     changing desktop density, where a mouse pointer doesn't need it. */
+  .btn-sm{padding:7px 12px;min-height:34px}
+  .qty-btn{width:32px;height:32px}
+  .badge{padding:3px 10px;font-size:.72rem}
   .payment-methods{grid-template-columns:1fr 1fr}
   .logo-sub{display:none}
 }

@@ -43,6 +43,21 @@ td{padding:7px 9px;border-bottom:1px solid #eee;font-size:11px}
 .pay-form{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px;margin-bottom:16px}
 .pay-form input,select{padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;margin-right:6px;margin-bottom:6px}
 @media print{.print-btn,.back-btn,.pay-form,.no-print{display:none!important}body{padding:0}}
+/* Update_031: on-screen mobile viewing only — the item table (HSN/GST/
+   CGST/SGST/etc. easily 8+ columns) needs to scroll horizontally rather
+   than crush onto a narrow phone screen; the print/PDF layout above is
+   completely untouched since this block is scoped to `screen`. */
+@media screen and (max-width:600px){
+  body{padding:10px;font-size:11px}
+  .hdr{flex-direction:column;gap:10px}
+  .doc-meta{text-align:left}
+  .parties{grid-template-columns:1fr}
+  .items-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:10px}
+  .items-scroll table{min-width:640px;margin-bottom:0}
+  th,td{padding:5px 7px;font-size:10.5px}
+  .totals{justify-content:stretch}
+  .tot-table{width:100%}
+}
 </style>
 </head>
 <body>
@@ -126,6 +141,7 @@ td{padding:7px 9px;border-bottom:1px solid #eee;font-size:11px}
 
 <!-- Items -->
 <div class="sec-title" style="margin-bottom:5px">Items</div>
+<div class="items-scroll">
 <table>
   <thead><tr>
     <th>#</th><th>Product</th><th>HSN</th><th>Qty</th><th>Rate (₹)</th>
@@ -151,6 +167,7 @@ td{padding:7px 9px;border-bottom:1px solid #eee;font-size:11px}
     {% endfor %}
   </tbody>
 </table>
+</div>
 
 <!-- GST Breakdown -->
 <div class="gst-box">
@@ -207,6 +224,7 @@ td{padding:7px 9px;border-bottom:1px solid #eee;font-size:11px}
 {% if payments %}
 <div class="pay-hist">
   <div class="sec-title" style="margin:14px 0 6px">Payment History</div>
+  <div class="items-scroll">
   <table>
     <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Reference</th><th>Notes</th></tr></thead>
     <tbody>
@@ -221,6 +239,7 @@ td{padding:7px 9px;border-bottom:1px solid #eee;font-size:11px}
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endif %}
 

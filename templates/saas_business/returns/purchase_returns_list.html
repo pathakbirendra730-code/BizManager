@@ -20,7 +20,7 @@
     </tr></thead>
     <tbody>
       {% for note in notes %}
-      <tr>
+      <tr class="row-link" data-href="{{ url_for('saas_returns.view_debit_note', dn_id=note.id) }}">
         <td><strong>{{ note.debit_note_number }}</strong></td>
         <td><a href="{{ url_for('saas_purchase.view', pid=note.purchase_id) }}">{{ note.purchase_number }}</a></td>
         <td>{{ m.supplier_link(note.supplier_id, note.supplier_name or '—') }}</td>

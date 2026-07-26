@@ -45,7 +45,8 @@
     </tr></thead>
     <tbody>
       {% for inv in invoices %}
-      <tr class="{% if inv.status=='cancelled' %}row-danger{% elif inv.due_amount > 0 %}row-warning{% endif %}">
+      <tr class="row-link {% if inv.status=='cancelled' %}row-danger{% elif inv.due_amount > 0 %}row-warning{% endif %}"
+          data-href="{{ url_for('saas_billing.view_invoice', inv_id=inv.id) }}">
         <td><strong>{{ inv.invoice_number }}</strong></td>
         <td>{{ m.customer_link(inv.customer_id, inv.customer_name or 'Walk-in') }}</td>
         <td>₹{{ "%.2f"|format(inv.total) }}</td>
