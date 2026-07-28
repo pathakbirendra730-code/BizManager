@@ -109,6 +109,75 @@ def calculate_gst(unit_price: float, quantity: float,
     }
 
 
+def apply_freight_and_roundoff(taxable_tot: float, cgst_tot: float, sgst_tot: float, igst_tot: float,
+                                freight_amount: float = 0, freight_gst_rate: float = 18,
+                                supply_type: str = "intra", round_off_enabled: bool = False) -> dict:
+    """
+    Update_032: adds Freight/Other Charges and an optional Round-Off
+    adjustment on top of already-computed item totals — the last step
+    before a document's Grand Total, for both Sales and Purchase.
+
+    Freight: taxed exactly like any other line (through the same
+    calculate_gst() engine, same supply_type, so it correctly becomes
+    CGST+SGST or IGST depending on intra/inter-state) at
+    `freight_gst_rate`, then folded into the running taxable/cgst/sgst/
+    igst totals ONCE — never calculated twice, and never bypassing the
+    engine with ad hoc arithmetic.
+
+    Round-Off: a pure, GST-free arithmetic nudge to the nearest whole
+    rupee on the FINAL total only (standard Indian retail/GST invoicing
+    practice) — it never touches taxable value or any tax component, so
+    it can never be mistaken for (or accidentally create) additional GST
+    liability. Disabled by default (`round_off_enabled=False`) so every
+    existing caller that doesn't explicitly opt in gets `round_off=0` and
+    an unchanged total — this function is purely additive to the
+    existing calculation flow, never a required step.
+
+    Returns every component needed both to display an itemized
+    breakdown (Freight Taxable/CGST/SGST/IGST as their own line) and to
+    reverse it exactly later — see returns.py's proportional-slice
+    design, which this is built to be compatible with (a future Credit/
+    Debit Note against a document with freight can slice
+    `freight_taxable` the same way it already slices item taxable
+    values).
+    """
+    freight_amount = round(float(freight_amount or 0), 2)
+    freight_taxable = freight_cgst = freight_sgst = freight_igst = 0.0
+    if freight_amount:
+        fg = calculate_gst(freight_amount, 1, freight_gst_rate, supply_type)
+        freight_taxable = fg["taxable"]
+        freight_cgst, freight_sgst, freight_igst = fg["cgst_amount"], fg["sgst_amount"], fg["igst_amount"]
+
+    new_taxable   = round(taxable_tot + freight_taxable, 2)
+    new_cgst      = round(cgst_tot + freight_cgst, 2)
+    new_sgst      = round(sgst_tot + freight_sgst, 2)
+    new_igst      = round(igst_tot + freight_igst, 2)
+    new_total_tax = round(new_cgst + new_sgst + new_igst, 2)
+    pre_roundoff_total = round(new_taxable + new_total_tax, 2)
+
+    round_off   = 0.0
+    final_total = pre_roundoff_total
+    if round_off_enabled:
+        final_total = round(pre_roundoff_total)
+        round_off   = round(final_total - pre_roundoff_total, 2)
+
+    return {
+        "taxable":            new_taxable,
+        "cgst_amount":        new_cgst,
+        "sgst_amount":        new_sgst,
+        "igst_amount":        new_igst,
+        "total_tax":          new_total_tax,
+        "freight_amount":     freight_amount,
+        "freight_taxable":    freight_taxable,
+        "freight_cgst":       freight_cgst,
+        "freight_sgst":       freight_sgst,
+        "freight_igst":       freight_igst,
+        "pre_roundoff_total": pre_roundoff_total,
+        "round_off":          round_off,
+        "total":              final_total,
+    }
+
+
 def determine_supply_type(business_state: str, customer_state: str) -> str:
     """
     Return 'intra' if both states match, else 'inter'.

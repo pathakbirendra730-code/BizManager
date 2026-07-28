@@ -241,6 +241,27 @@ def gstr3b():
                            net_outward=net_outward, net_itc=net_itc, net_payable=net_payable)
 
 
+# ════════════════════════════════ GST HEALTH CHECK ═════════════════════════════
+
+@saas_gst_bp.route("/health-check")
+@saas_business_required
+@permission_required("view_gst")
+def health_check():
+    """
+    Update_032: runs utils.gst_health.run_health_check() — Ledger,
+    Inventory, HSN, GSTIN, numbering, Input/Output GST reconciliation,
+    and Returns integrity — and shows a 0-100 score with a specific,
+    actionable issue list. Meant to be run before generating a GSTR-1/
+    GSTR-3B for filing.
+    """
+    biz_id = get_tenant_id()
+    p = P()
+    from utils.gst_health import run_health_check
+    report = run_health_check(biz_id)
+    biz = saas_fetchone(f"SELECT * FROM saas_businesses WHERE id={p}", (biz_id,))
+    return render_template("saas_business/gst/health_check.html", biz=biz, report=report)
+
+
 # ════════════════════════════════ HSN-WISE SUMMARY ═════════════════════════════
 
 @saas_gst_bp.route("/hsn-summary")

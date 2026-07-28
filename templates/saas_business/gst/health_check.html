@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}GST Health Check{% endblock %}
+{% block page_title %}GST Health Check{% endblock %}
+{% block content %}
+
+<div class="card">
+  <div class="card-body" style="text-align:center;padding:30px">
+    <div style="font-size:52px;font-weight:800;
+                color:{{ '#16a34a' if report.score >= 90 else ('#d97706' if report.score >= 70 else '#dc2626') }}">
+      {{ report.score }}<span style="font-size:22px">/100</span>
+    </div>
+    <p style="color:var(--text-muted);margin-top:4px">GST Health Score for {{ biz.name if biz else '' }}</p>
+    <div style="display:flex;justify-content:center;gap:24px;margin-top:16px">
+      <span>🔴 <strong>{{ report.error_count }}</strong> error{{ 's' if report.error_count != 1 }}</span>
+      <span>🟡 <strong>{{ report.warning_count }}</strong> warning{{ 's' if report.warning_count != 1 }}</span>
+    </div>
+    {% if report.is_clean %}
+    <p style="margin-top:18px;color:#16a34a;font-weight:600">✅ No issues found — clear to generate GSTR-1/GSTR-3B.</p>
+    {% else %}
+    <p style="margin-top:18px;color:var(--text-muted);font-size:13px">
+      Review the issues below before filing. Errors should be resolved first; warnings are worth checking but
+      may be legitimate (e.g. a walk-in customer with no GSTIN on file).
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+{% if report.issues %}
+<div class="card">
+  <div class="card-header"><h3>Issues Found</h3></div>
+  <div class="card-body p-0">
+    <table class="table table-hover">
+      <thead><tr><th>Severity</th><th>Category</th><th class="wrap">Issue</th><th class="wrap">Suggested Fix</th></tr></thead>
+      <tbody>
+        {% for issue in report.issues %}
+        <tr class="{{ 'row-danger' if issue.severity == 'error' else 'row-warning' }}">
+          <td>
+            {% if issue.severity == 'error' %}
+            <span class="badge badge-danger">ERROR</span>
+            {% else %}
+            <span class="badge badge-warning">WARNING</span>
+            {% endif %}
+          </td>
+          <td><strong>{{ issue.category }}</strong></td>
+          <td class="wrap">{{ issue.message }}</td>
+          <td class="wrap text-muted small">{{ issue.fix }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-body">
+    <p class="text-muted small" style="margin:0">
+      Checks run: Ledger (Trial Balance) · Inventory balance · HSN/SAC validity · GSTIN validity ·
+      Invoice/Purchase numbering continuity · Output GST reconciliation · Input GST (ITC) reconciliation ·
+      Credit/Debit Note return integrity.
+    </p>
+  </div>
+</div>
+
+{% endblock %}

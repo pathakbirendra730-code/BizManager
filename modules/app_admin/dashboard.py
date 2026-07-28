@@ -561,3 +561,77 @@ def platform_settings():
     return render_template("app_admin/settings.html", settings=all_settings(),
                            current_fy=financial_year_for_date(today),
                            current_month=today.strftime("%Y-%m"))
+
+
+# ═══════════════════════════ HSN/SAC MASTER (Update_032) ══════════════════════
+# Global reference data, same tier as Settings above — see
+# utils/hsn_master.py for the read/search/validate/CRUD API this wraps.
+
+@app_admin_bp.route("/hsn-master")
+@super_admin_required
+def hsn_master():
+    from utils.hsn_master import list_all_hsn
+    search = request.args.get("q", "").strip()
+    codes = list_all_hsn(search)
+    return render_template("app_admin/hsn_master.html", codes=codes, search=search)
+
+
+@app_admin_bp.route("/hsn-master/add", methods=["POST"])
+@super_admin_required
+def hsn_master_add():
+    if not validate_csrf(request.form.get("csrf_token")):
+        flash("Security error. Please try again.", "danger")
+        return redirect(url_for("app_admin.hsn_master"))
+
+    from utils.hsn_master import create_hsn
+    data = {
+        "hsn_code": request.form.get("hsn_code", ""),
+        "description": request.form.get("description", ""),
+        "default_gst_rate": request.form.get("default_gst_rate", 0),
+        "category": request.form.get("category", ""),
+        "unit": request.form.get("unit", ""),
+        "effective_date": request.form.get("effective_date", ""),
+        "is_service": request.form.get("is_service") == "on",
+        "reverse_charge": request.form.get("reverse_charge") == "on",
+        "tax_status": request.form.get("tax_status", "taxable"),
+        "itc_eligible": request.form.get("itc_eligible") == "on",
+        "is_active": request.form.get("is_active", "on") == "on",
+    }
+    try:
+        hsn_id = create_hsn(data)
+        audit_log("hsn_master_created", entity_type="hsn_master", entity_id=str(hsn_id),
+                  detail=f"code={data['hsn_code']} by_admin={session.get('admin_userid')}")
+        flash(f"HSN/SAC {data['hsn_code']} added.", "success")
+    except ValueError as e:
+        flash(str(e), "danger")
+    return redirect(url_for("app_admin.hsn_master"))
+
+
+@app_admin_bp.route("/hsn-master/<int:hsn_id>/edit", methods=["POST"])
+@super_admin_required
+def hsn_master_edit(hsn_id):
+    if not validate_csrf(request.form.get("csrf_token")):
+        flash("Security error. Please try again.", "danger")
+        return redirect(url_for("app_admin.hsn_master"))
+
+    from utils.hsn_master import update_hsn
+    data = {
+        "description": request.form.get("description", ""),
+        "default_gst_rate": request.form.get("default_gst_rate", 0),
+        "category": request.form.get("category", ""),
+        "unit": request.form.get("unit", ""),
+        "effective_date": request.form.get("effective_date", ""),
+        "is_service": request.form.get("is_service") == "on",
+        "reverse_charge": request.form.get("reverse_charge") == "on",
+        "tax_status": request.form.get("tax_status", "taxable"),
+        "itc_eligible": request.form.get("itc_eligible") == "on",
+        "is_active": request.form.get("is_active") == "on",
+    }
+    try:
+        update_hsn(hsn_id, data)
+        audit_log("hsn_master_updated", entity_type="hsn_master", entity_id=str(hsn_id),
+                  detail=f"by_admin={session.get('admin_userid')}")
+        flash("HSN/SAC entry updated.", "success")
+    except ValueError as e:
+        flash(str(e), "danger")
+    return redirect(url_for("app_admin.hsn_master"))

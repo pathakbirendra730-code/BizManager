@@ -178,24 +178,54 @@ def save_invoice():
         total_tax = round(cgst_tot + sgst_tot + igst_tot, 2)
         grand_tot = round(taxable_tot + total_tax, 2)
 
+        # ── Freight/Other Charges + Round-Off (Update_032) — opt-in via the
+        # payload; every field defaults to "off", so an existing POS
+        # request with none of these keys produces byte-identical totals
+        # to before this update. ─────────────────────────────────────────
+        freight_amount = float(data.get("freight_amount", 0) or 0)
+        round_off_enabled = bool(data.get("round_off_enabled", False))
+        if freight_amount or round_off_enabled:
+            from utils.tax_helpers import apply_freight_and_roundoff
+            fr = apply_freight_and_roundoff(
+                taxable_tot, cgst_tot, sgst_tot, igst_tot,
+                freight_amount=freight_amount,
+                freight_gst_rate=float(data.get("freight_gst_rate", 18) or 18),
+                supply_type=supply_type, round_off_enabled=round_off_enabled
+            )
+            taxable_tot, cgst_tot, sgst_tot, igst_tot = fr["taxable"], fr["cgst_amount"], fr["sgst_amount"], fr["igst_amount"]
+            total_tax, grand_tot, round_off = fr["total_tax"], fr["total"], fr["round_off"]
+        else:
+            round_off = 0.0
+
         if paid_amount < 0:
             paid_amount = grand_tot
         paid_amount = round(min(paid_amount, grand_tot), 2)
         due_amount  = round(grand_tot - paid_amount, 2)
         status      = _invoice_status(grand_tot, paid_amount)
 
-        from utils.document_numbering import generate_document_number
         user_id    = session.get("saas_user_id")
         today      = datetime.utcnow().date().isoformat()
         manual_doc_number = (data.get("manual_doc_number") or "").strip()
-        if manual_doc_number:
-            existing_no = saas_fetchone(
-                f"SELECT id FROM saas_invoices WHERE business_id={p} AND invoice_number={p}",
-                (biz_id, manual_doc_number)
-            )
-            if existing_no:
-                return jsonify({"success": False,
-                    "message": f"Invoice number '{manual_doc_number}' is already in use."}), 400
+        reverse_charge = bool(data.get("reverse_charge", False))
+
+        # ── GST Validation Engine (Update_032) — runs BEFORE a document
+        # number is even generated, so a rejected save never burns a
+        # number for nothing. Hard errors block the save outright;
+        # warnings ride along in the success response for the POS
+        # screen to surface without blocking the sale. ──────────────────
+        from utils.gst_validation import validate_sales_document
+        validation = validate_sales_document(
+            biz_id, business_state=biz.get("state_code", ""),
+            customer_gstin=cust_gstin, customer_state=cust_state,
+            supply_type=supply_type, document_date=today, items=items,
+            reverse_charge=reverse_charge, manual_invoice_number=manual_doc_number
+        )
+        if validation["errors"]:
+            return jsonify({"success": False,
+                "message": "GST validation failed: " + " | ".join(validation["errors"]),
+                "errors": validation["errors"]}), 400
+
+        from utils.document_numbering import generate_document_number
         doc = generate_document_number(biz_id, "sales_invoice", today, manual_number=manual_doc_number)
         inv_number = doc["formatted"]
 
@@ -207,16 +237,17 @@ def save_invoice():
                  subtotal, discount, discount_pct, taxable_amount,
                  cgst_amount, sgst_amount, igst_amount, total_tax, total,
                  paid_amount, due_amount, payment_method, place_of_supply,
-                 notes, status, tax_mode, created_by)
+                 notes, status, tax_mode, reverse_charge, freight_amount, round_off, created_by)
                 VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},
-                        {p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p})""",
+                        {p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p})""",
             (biz_id, inv_number, doc["prefix"], doc["financial_year"], doc["sequence"],
              customer_id, customer_name,
              cust_gstin, cust_state, supply_type,
              gross_subtotal, disc_amt, disc_pct, taxable_tot,
              cgst_tot, sgst_tot, igst_tot, total_tax, grand_tot,
              paid_amount, due_amount, payment,
-             cust_state or biz.get("state_code", ""), notes, status, tax_mode, user_id)
+             cust_state or biz.get("state_code", ""), notes, status, tax_mode, reverse_charge,
+             freight_amount, round_off, user_id)
         )
 
         # Invoice line items + tenant-scoped stock decrement
@@ -275,7 +306,8 @@ def save_invoice():
 
         return jsonify({"success": True, "invoice_id": inv_id,
                         "invoice_number": inv_number, "total": grand_tot,
-                        "paid": paid_amount, "due": due_amount, "status": status})
+                        "paid": paid_amount, "due": due_amount, "status": status,
+                        "warnings": validation["warnings"]})
 
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500

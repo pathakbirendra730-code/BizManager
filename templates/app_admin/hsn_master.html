@@ -1,0 +1,169 @@
+{% extends "app_admin/base_admin.html" %}
+{% block title %}HSN/SAC Master | App Admin{% endblock %}
+
+{% block content %}
+<h1 style="font-size:22px; color:#fff; margin:0 0 20px;">
+  HSN/SAC Master <span style="color:#6b7280; font-size:15px; font-weight:400;">({{ codes|length }} shown)</span>
+</h1>
+<p style="color:#9ca3af; font-size:13px; margin:0 0 20px; max-width:720px;">
+  Global reference data shared by every business — Products, Billing, and Purchase entry all validate against
+  this list (see the GST Validation Engine). Adding, editing, or deactivating a code here never changes any
+  document already saved; it only affects new transactions going forward and future search/autocomplete results.
+</p>
+
+<div class="card" style="margin-bottom:20px;">
+  <form method="GET" style="display:flex; gap:10px;">
+    <input type="text" name="q" value="{{ search }}" placeholder="Search by code or description…" class="form-control" style="max-width:320px;">
+    <button type="submit" class="btn-admin" style="padding:9px 18px;">🔍 Search</button>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:20px;">
+  <h3 style="color:#fff; font-size:15px; margin:0 0 14px;">➕ Add HSN/SAC Code</h3>
+  <form method="POST" action="{{ url_for('app_admin.hsn_master_add') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:12px;">
+      <div>
+        <label style="color:#9ca3af; font-size:12px;">HSN/SAC Code *</label>
+        <input type="text" name="hsn_code" required maxlength="8" class="form-control" placeholder="e.g. 8471">
+      </div>
+      <div style="grid-column:span 2;">
+        <label style="color:#9ca3af; font-size:12px;">Description *</label>
+        <input type="text" name="description" required class="form-control" placeholder="e.g. Computers and peripherals">
+      </div>
+      <div>
+        <label style="color:#9ca3af; font-size:12px;">GST Rate (%)</label>
+        <input type="number" step="0.01" name="default_gst_rate" value="18" class="form-control">
+      </div>
+      <div>
+        <label style="color:#9ca3af; font-size:12px;">Category</label>
+        <input type="text" name="category" class="form-control" placeholder="e.g. Electronics">
+      </div>
+      <div>
+        <label style="color:#9ca3af; font-size:12px;">Unit</label>
+        <input type="text" name="unit" class="form-control" placeholder="e.g. NOS, KG">
+      </div>
+      <div>
+        <label style="color:#9ca3af; font-size:12px;">Effective Date</label>
+        <input type="date" name="effective_date" class="form-control">
+      </div>
+      <div>
+        <label style="color:#9ca3af; font-size:12px;">Tax Status</label>
+        <select name="tax_status" class="form-control">
+          <option value="taxable">Taxable</option>
+          <option value="exempt">Exempt</option>
+          <option value="nil_rated">Nil Rated</option>
+          <option value="non_gst">Non-GST</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex; gap:20px; margin-bottom:14px; flex-wrap:wrap;">
+      <label style="color:#d1d5db; font-size:13px; display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" name="is_service"> Service (SAC), not goods
+      </label>
+      <label style="color:#d1d5db; font-size:13px; display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" name="reverse_charge"> Reverse Charge applicable
+      </label>
+      <label style="color:#d1d5db; font-size:13px; display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" name="itc_eligible" checked> ITC Eligible
+      </label>
+      <label style="color:#d1d5db; font-size:13px; display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" name="is_active" checked> Active
+      </label>
+    </div>
+    <button type="submit" class="btn-admin" style="padding:9px 22px;">Add HSN/SAC</button>
+  </form>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Code</th><th class="wrap">Description</th><th>Rate</th><th>Unit</th><th>Type</th>
+        <th>Tax Status</th><th>RCM</th><th>ITC</th><th>Status</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in codes %}
+      <tr>
+        <td><strong style="color:#fff;">{{ c.hsn_code }}</strong></td>
+        <td class="wrap">{{ c.description }}{% if c.category %}<div style="color:#6b7280;font-size:11px">{{ c.category }}</div>{% endif %}</td>
+        <td>{{ c.default_gst_rate }}%</td>
+        <td>{{ c.unit or '—' }}</td>
+        <td>{{ 'Service' if c.is_service else 'Goods' }}</td>
+        <td>
+          {% if c.tax_status == 'taxable' %}<span class="pill pill-active">Taxable</span>
+          {% else %}<span class="pill pill-inactive">{{ c.tax_status|replace('_',' ')|title }}</span>{% endif %}
+        </td>
+        <td>{{ '✅' if c.reverse_charge else '—' }}</td>
+        <td>{{ '✅' if c.itc_eligible else '❌' }}</td>
+        <td>
+          {% if c.is_active %}<span class="pill pill-active">Active</span>
+          {% else %}<span class="pill pill-inactive">Inactive</span>{% endif %}
+        </td>
+        <td>
+          <button type="button" class="btn-sm" style="background:#1f2430;color:#d1d5db"
+                  onclick="document.getElementById('edit-{{ c.id }}').classList.toggle('hidden')">✏ Edit</button>
+        </td>
+      </tr>
+      <tr id="edit-{{ c.id }}" class="hidden">
+        <td colspan="10" style="background:#0e1219;">
+          <form method="POST" action="{{ url_for('app_admin.hsn_master_edit', hsn_id=c.id) }}"
+                style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; padding:14px 4px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div style="grid-column:span 2;">
+              <label style="color:#9ca3af; font-size:11px;">Description</label>
+              <input type="text" name="description" value="{{ c.description }}" required class="form-control">
+            </div>
+            <div>
+              <label style="color:#9ca3af; font-size:11px;">GST Rate (%)</label>
+              <input type="number" step="0.01" name="default_gst_rate" value="{{ c.default_gst_rate }}" class="form-control">
+            </div>
+            <div>
+              <label style="color:#9ca3af; font-size:11px;">Category</label>
+              <input type="text" name="category" value="{{ c.category }}" class="form-control">
+            </div>
+            <div>
+              <label style="color:#9ca3af; font-size:11px;">Unit</label>
+              <input type="text" name="unit" value="{{ c.unit }}" class="form-control">
+            </div>
+            <div>
+              <label style="color:#9ca3af; font-size:11px;">Effective Date</label>
+              <input type="date" name="effective_date" value="{{ c.effective_date }}" class="form-control">
+            </div>
+            <div>
+              <label style="color:#9ca3af; font-size:11px;">Tax Status</label>
+              <select name="tax_status" class="form-control">
+                <option value="taxable" {% if c.tax_status=='taxable' %}selected{% endif %}>Taxable</option>
+                <option value="exempt" {% if c.tax_status=='exempt' %}selected{% endif %}>Exempt</option>
+                <option value="nil_rated" {% if c.tax_status=='nil_rated' %}selected{% endif %}>Nil Rated</option>
+                <option value="non_gst" {% if c.tax_status=='non_gst' %}selected{% endif %}>Non-GST</option>
+              </select>
+            </div>
+            <div style="grid-column:span 4; display:flex; gap:20px; align-items:center;">
+              <label style="color:#d1d5db; font-size:12px; display:flex; align-items:center; gap:6px;">
+                <input type="checkbox" name="is_service" {% if c.is_service %}checked{% endif %}> Service (SAC)
+              </label>
+              <label style="color:#d1d5db; font-size:12px; display:flex; align-items:center; gap:6px;">
+                <input type="checkbox" name="reverse_charge" {% if c.reverse_charge %}checked{% endif %}> Reverse Charge
+              </label>
+              <label style="color:#d1d5db; font-size:12px; display:flex; align-items:center; gap:6px;">
+                <input type="checkbox" name="itc_eligible" {% if c.itc_eligible %}checked{% endif %}> ITC Eligible
+              </label>
+              <label style="color:#d1d5db; font-size:12px; display:flex; align-items:center; gap:6px;">
+                <input type="checkbox" name="is_active" {% if c.is_active %}checked{% endif %}> Active
+              </label>
+              <button type="submit" class="btn-admin" style="padding:7px 18px;">Save</button>
+            </div>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="10" style="text-align:center; color:#6b7280; padding:24px;">No HSN/SAC codes found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<style>.hidden{display:none}</style>
+{% endblock %}

@@ -118,6 +118,10 @@ def add():
         audit_log("product_created", business_id=biz_id,
                   entity_type="product", entity_id=str(prod_id), detail=f"name={d['name']}")
         flash(f"Product '{d['name']}' added.", "success")
+        if d["hsn_code"]:
+            from utils.hsn_master import validate_hsn_for_transaction
+            for issue in validate_hsn_for_transaction(d["hsn_code"], d["gst_rate"]):
+                flash(issue, "warning")
         return redirect(url_for("saas_products.index"))
 
     return render_template("saas_business/products/add_edit.html",
@@ -183,6 +187,10 @@ def edit(pid):
         audit_log("product_updated", business_id=biz_id,
                   entity_type="product", entity_id=str(pid))
         flash("Product updated.", "success")
+        if d["hsn_code"]:
+            from utils.hsn_master import validate_hsn_for_transaction
+            for issue in validate_hsn_for_transaction(d["hsn_code"], d["gst_rate"]):
+                flash(issue, "warning")
         return redirect(url_for("saas_products.index"))
 
     return render_template("saas_business/products/add_edit.html",
@@ -367,27 +375,31 @@ def api_search():
 
 # ════════════════════════════════ HSN LOOKUP (global, read-only) ══════════════
 
+# ════════════════════════════════ HSN LOOKUP (global, read-only) ══════════════
+
 @saas_products_bp.route("/api/hsn")
 @saas_business_required
 def api_hsn():
-    """HSN master is global reference data — same source as the legacy
-    GST module, exposed here via a SaaS-session-aware route so the
-    product form's HSN autocomplete works for SaaS users."""
-    from models.saas_business_data import get_hsn_master
+    """HSN master is global reference data — same source as the GST
+    module, exposed here via a SaaS-session-aware route so the product
+    form's HSN autocomplete works for SaaS users."""
+    from utils.hsn_master import search_hsn
     q = request.args.get("q", "").strip()
-    return jsonify(get_hsn_master(q)[:15])
+    return jsonify(search_hsn(q, limit=15))
 
 
 @saas_products_bp.route("/api/hsn/<string:code>")
 @saas_business_required
 def api_hsn_code(code):
-    from models.database import get_db
-    conn = get_db()
-    try:
-        row = conn.execute("SELECT * FROM hsn_master WHERE hsn_code=?", (code,)).fetchone()
-        return jsonify(dict(row) if row else {})
-    finally:
-        conn.close()
+    """
+    Update_032: was querying models.database.get_db() — the legacy
+    single-tenant SQLite connection, which is a completely different,
+    disconnected database in a real Postgres production deployment
+    (see utils/hsn_master.py's module docstring). Always returned {}
+    there. Fixed to use the same SaaS-aware lookup as api_hsn() above.
+    """
+    from utils.hsn_master import get_hsn
+    return jsonify(get_hsn(code) or {})
 
 
 # ════════════════════════════════ HELPERS ═════════════════════════════════════

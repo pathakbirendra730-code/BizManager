@@ -67,13 +67,33 @@ def init_db():
     )""")
 
     # ── HSN master (global) ────────────────────────────────────────────────────
+    # Update_032: upgraded from a bare code/description/rate lookup into a
+    # complete HSN/SAC master — see utils/hsn_master.py for the read/search/
+    # validate API built on top of this table, and CHANGELOG_Update_032.md
+    # for the full field-by-field rationale.
     c.execute("""CREATE TABLE IF NOT EXISTS hsn_master (
         id               INTEGER PRIMARY KEY AUTOINCREMENT,
         hsn_code         TEXT NOT NULL UNIQUE,
         description      TEXT NOT NULL,
         default_gst_rate REAL NOT NULL DEFAULT 18,
-        category         TEXT DEFAULT ''
+        category         TEXT DEFAULT '',
+        unit             TEXT DEFAULT '',
+        effective_date   TEXT DEFAULT '',
+        is_service       INTEGER NOT NULL DEFAULT 0,
+        reverse_charge   INTEGER NOT NULL DEFAULT 0,
+        tax_status       TEXT NOT NULL DEFAULT 'taxable',
+        itc_eligible     INTEGER NOT NULL DEFAULT 1,
+        is_active        INTEGER NOT NULL DEFAULT 1
     )""")
+    for col, defn in [
+        ("unit", "TEXT DEFAULT ''"), ("effective_date", "TEXT DEFAULT ''"),
+        ("is_service", "INTEGER NOT NULL DEFAULT 0"), ("reverse_charge", "INTEGER NOT NULL DEFAULT 0"),
+        ("tax_status", "TEXT NOT NULL DEFAULT 'taxable'"), ("itc_eligible", "INTEGER NOT NULL DEFAULT 1"),
+        ("is_active", "INTEGER NOT NULL DEFAULT 1"),
+    ]:
+        existing_hsn_cols = {row[1] for row in c.execute("PRAGMA table_info(hsn_master)").fetchall()}
+        if col not in existing_hsn_cols:
+            c.execute(f"ALTER TABLE hsn_master ADD COLUMN {col} {defn}")
 
     # ── categories (per-shop) ─────────────────────────────────────────────────
     c.execute("""CREATE TABLE IF NOT EXISTS categories (

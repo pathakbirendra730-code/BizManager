@@ -157,21 +157,47 @@ def save():
         total_tax = round(cgst_tot + sgst_tot + igst_tot, 2)
         total     = round(taxable + total_tax, 2)
 
+        # ── Freight/Other Charges + Round-Off (Update_032) — see
+        # billing.py::save_invoice for the full rationale; same opt-in,
+        # backward-compatible mechanism, purchase side. ─────────────────
+        freight_amount = float(data.get("freight_amount", 0) or 0)
+        round_off_enabled = bool(data.get("round_off_enabled", False))
+        if freight_amount or round_off_enabled:
+            from utils.tax_helpers import apply_freight_and_roundoff
+            fr = apply_freight_and_roundoff(
+                taxable, cgst_tot, sgst_tot, igst_tot,
+                freight_amount=freight_amount,
+                freight_gst_rate=float(data.get("freight_gst_rate", 18) or 18),
+                supply_type=supply_type, round_off_enabled=round_off_enabled
+            )
+            taxable, cgst_tot, sgst_tot, igst_tot = fr["taxable"], fr["cgst_amount"], fr["sgst_amount"], fr["igst_amount"]
+            total_tax, total, round_off = fr["total_tax"], fr["total"], fr["round_off"]
+        else:
+            round_off = 0.0
+
         paid_amount = round(max(0, min(paid_amount, total)), 2)
         due         = round(total - paid_amount, 2)
         status      = _purchase_status(total, paid_amount)
 
-        from utils.document_numbering import generate_document_number
         user_id    = session.get("saas_user_id")
         manual_doc_number = (data.get("manual_doc_number") or "").strip()
-        if manual_doc_number:
-            existing_no = saas_fetchone(
-                f"SELECT id FROM saas_purchases WHERE business_id={p} AND purchase_number={p}",
-                (biz_id, manual_doc_number)
-            )
-            if existing_no:
-                return jsonify({"success": False,
-                    "message": f"Purchase number '{manual_doc_number}' is already in use."}), 400
+        reverse_charge = bool(data.get("reverse_charge", False))
+
+        # ── GST Validation Engine (Update_032) — see billing.py::save_invoice
+        # for the full rationale; same principle, purchase side. ───────────
+        from utils.gst_validation import validate_purchase_document
+        validation = validate_purchase_document(
+            biz_id, business_state=biz.get("state_code", ""),
+            supplier_gstin=sup_gstin, supplier_state=sup_state,
+            supply_type=supply_type, document_date=bill_date, items=items,
+            reverse_charge=reverse_charge, manual_purchase_number=manual_doc_number
+        )
+        if validation["errors"]:
+            return jsonify({"success": False,
+                "message": "GST validation failed: " + " | ".join(validation["errors"]),
+                "errors": validation["errors"]}), 400
+
+        from utils.document_numbering import generate_document_number
         doc = generate_document_number(biz_id, "purchase_bill", bill_date, manual_number=manual_doc_number)
         pur_number = doc["formatted"]
 
@@ -183,16 +209,16 @@ def save():
                  subtotal, discount, discount_pct, taxable_amount,
                  cgst_amount, sgst_amount, igst_amount, total_tax, total,
                  paid_amount, due_amount, payment_method, supply_type,
-                 notes, status, tax_mode, created_by)
+                 notes, status, tax_mode, reverse_charge, freight_amount, round_off, created_by)
                 VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},
-                        {p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p})""",
+                        {p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p})""",
             (biz_id, pur_number, doc["prefix"], doc["financial_year"], doc["sequence"],
              supplier_id, supplier_name,
              sup_gstin, bill_number, bill_date,
              gross_subtotal, disc_amt, disc_pct, taxable,
              cgst_tot, sgst_tot, igst_tot, total_tax, total,
              paid_amount, due, payment, supply_type,
-             notes, status, tax_mode, user_id)
+             notes, status, tax_mode, reverse_charge, freight_amount, round_off, user_id)
         )
 
         # Items + tenant-scoped stock increment + cost price update.
@@ -267,7 +293,8 @@ def save():
                   detail=f"number={pur_number} total={total}")
 
         return jsonify({"success": True, "purchase_id": pur_id,
-                        "purchase_number": pur_number, "total": total})
+                        "purchase_number": pur_number, "total": total,
+                        "warnings": validation["warnings"]})
 
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500

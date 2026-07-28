@@ -502,6 +502,40 @@ def _init_sqlite(c):
     if "tax_mode" not in existing_pur_cols:
         c.execute("ALTER TABLE saas_purchases ADD COLUMN tax_mode TEXT")
 
+    # ── Update_032: GST & HSN Perfection (Phase 1) ──────────────────────────────
+    # reverse_charge / freight_amount / round_off — document-header-level GST
+    # calculation engine additions (see utils/tax_helpers.py's
+    # apply_freight_and_roundoff()). All default to 0/false, so an existing
+    # document (and any document saved by a caller that doesn't yet pass
+    # these) behaves exactly as before — freight of 0 and round-off of 0 are
+    # no-ops, and reverse_charge defaults to "not applicable".
+    #
+    # tax_status on invoice/purchase items (nullable — NULL means "inherit
+    # from this line's HSN code", the common case) is what lets a future
+    # GSTR-1 Nil-Rated/Exempt/Non-GST section be built without redesigning
+    # anything: the classification already exists per line, right now, even
+    # though no report reads it yet. See utils/hsn_master.py's TAX_STATUSES
+    # and CHANGELOG_Update_032.md §5 "Future Compatibility" for the full
+    # mapping from this column to each future GSTR-1 section.
+    existing_inv_cols = {row[1] for row in c.execute("PRAGMA table_info(saas_invoices)").fetchall()}
+    for col, defn in [("reverse_charge", "INTEGER NOT NULL DEFAULT 0"),
+                       ("freight_amount", "REAL NOT NULL DEFAULT 0"),
+                       ("round_off", "REAL NOT NULL DEFAULT 0")]:
+        if col not in existing_inv_cols:
+            c.execute(f"ALTER TABLE saas_invoices ADD COLUMN {col} {defn}")
+    existing_pur_cols = {row[1] for row in c.execute("PRAGMA table_info(saas_purchases)").fetchall()}
+    for col, defn in [("reverse_charge", "INTEGER NOT NULL DEFAULT 0"),
+                       ("freight_amount", "REAL NOT NULL DEFAULT 0"),
+                       ("round_off", "REAL NOT NULL DEFAULT 0")]:
+        if col not in existing_pur_cols:
+            c.execute(f"ALTER TABLE saas_purchases ADD COLUMN {col} {defn}")
+    existing_ii_cols2 = {row[1] for row in c.execute("PRAGMA table_info(saas_invoice_items)").fetchall()}
+    if "tax_status" not in existing_ii_cols2:
+        c.execute("ALTER TABLE saas_invoice_items ADD COLUMN tax_status TEXT")
+    existing_pi_cols2 = {row[1] for row in c.execute("PRAGMA table_info(saas_purchase_items)").fetchall()}
+    if "tax_status" not in existing_pi_cols2:
+        c.execute("ALTER TABLE saas_purchase_items ADD COLUMN tax_status TEXT")
+
     # ── Update_030: Credit/Debit Notes & Returns ────────────────────────────────
     # returned_quantity tracks, per original invoice/purchase line, how much
     # of that line has already been returned via a credit/debit note so
@@ -641,13 +675,39 @@ def _init_sqlite(c):
     # This is the one table from the old models/database.py legacy schema that's
     # still genuinely read by live features (Products, GST). Ported here so it
     # exists on Postgres too — everything else in that legacy schema is orphaned.
+    #
+    # Update_032: upgraded from a bare code/description/rate lookup into a
+    # complete HSN/SAC master (unit, effective date, goods-vs-service, reverse
+    # charge, exempt/nil/non-GST tax status, ITC eligibility) — see
+    # utils/hsn_master.py for the read/search/validate API, and
+    # CHANGELOG_Update_032.md for the field-by-field rationale. Migration is
+    # additive/backward-compatible: every new column has a default that
+    # reproduces today's behavior for the 60+ already-seeded codes (all
+    # taxable, ITC-eligible, non-reverse-charge, goods — which is what they
+    # already implicitly were).
     c.execute("""CREATE TABLE IF NOT EXISTS hsn_master (
         id               INTEGER PRIMARY KEY AUTOINCREMENT,
         hsn_code         TEXT NOT NULL UNIQUE,
         description      TEXT NOT NULL,
         default_gst_rate REAL NOT NULL DEFAULT 18,
-        category         TEXT DEFAULT ''
+        category         TEXT DEFAULT '',
+        unit             TEXT DEFAULT '',
+        effective_date   TEXT DEFAULT '',
+        is_service       INTEGER NOT NULL DEFAULT 0,
+        reverse_charge   INTEGER NOT NULL DEFAULT 0,
+        tax_status       TEXT NOT NULL DEFAULT 'taxable',
+        itc_eligible     INTEGER NOT NULL DEFAULT 1,
+        is_active        INTEGER NOT NULL DEFAULT 1
     )""")
+    existing_hsn_cols = {row[1] for row in c.execute("PRAGMA table_info(hsn_master)").fetchall()}
+    for col, defn in [
+        ("unit", "TEXT DEFAULT ''"), ("effective_date", "TEXT DEFAULT ''"),
+        ("is_service", "INTEGER NOT NULL DEFAULT 0"), ("reverse_charge", "INTEGER NOT NULL DEFAULT 0"),
+        ("tax_status", "TEXT NOT NULL DEFAULT 'taxable'"), ("itc_eligible", "INTEGER NOT NULL DEFAULT 1"),
+        ("is_active", "INTEGER NOT NULL DEFAULT 1"),
+    ]:
+        if col not in existing_hsn_cols:
+            c.execute(f"ALTER TABLE hsn_master ADD COLUMN {col} {defn}")
 
 
 # ═══════════════════════════════ POSTGRESQL SCHEMA ════════════════════════════
@@ -962,6 +1022,17 @@ def _init_postgres(c):
     c.execute("ALTER TABLE saas_invoices ADD COLUMN IF NOT EXISTS tax_mode VARCHAR(10)")
     c.execute("ALTER TABLE saas_purchases ADD COLUMN IF NOT EXISTS tax_mode VARCHAR(10)")
 
+    # ── Update_032: GST & HSN Perfection (Phase 1) ──────────────────────────────
+    # See the SQLite branch's comment for the full rationale.
+    c.execute("ALTER TABLE saas_invoices ADD COLUMN IF NOT EXISTS reverse_charge BOOLEAN NOT NULL DEFAULT FALSE")
+    c.execute("ALTER TABLE saas_invoices ADD COLUMN IF NOT EXISTS freight_amount NUMERIC(12,2) NOT NULL DEFAULT 0")
+    c.execute("ALTER TABLE saas_invoices ADD COLUMN IF NOT EXISTS round_off NUMERIC(6,2) NOT NULL DEFAULT 0")
+    c.execute("ALTER TABLE saas_purchases ADD COLUMN IF NOT EXISTS reverse_charge BOOLEAN NOT NULL DEFAULT FALSE")
+    c.execute("ALTER TABLE saas_purchases ADD COLUMN IF NOT EXISTS freight_amount NUMERIC(12,2) NOT NULL DEFAULT 0")
+    c.execute("ALTER TABLE saas_purchases ADD COLUMN IF NOT EXISTS round_off NUMERIC(6,2) NOT NULL DEFAULT 0")
+    c.execute("ALTER TABLE saas_invoice_items ADD COLUMN IF NOT EXISTS tax_status VARCHAR(20)")
+    c.execute("ALTER TABLE saas_purchase_items ADD COLUMN IF NOT EXISTS tax_status VARCHAR(20)")
+
     # ── Update_030: Credit/Debit Notes & Returns ────────────────────────────────
     # See the SQLite branch's comments for the full rationale on all of
     # the below — this is the Postgres equivalent, same shapes.
@@ -1080,8 +1151,22 @@ def _init_postgres(c):
         hsn_code         VARCHAR(20)  NOT NULL UNIQUE,
         description      TEXT         NOT NULL,
         default_gst_rate NUMERIC(5,2) NOT NULL DEFAULT 18,
-        category         VARCHAR(100) DEFAULT ''
+        category         VARCHAR(100) DEFAULT '',
+        unit             VARCHAR(20)  DEFAULT '',
+        effective_date   VARCHAR(10)  DEFAULT '',
+        is_service       BOOLEAN NOT NULL DEFAULT FALSE,
+        reverse_charge   BOOLEAN NOT NULL DEFAULT FALSE,
+        tax_status       VARCHAR(20)  NOT NULL DEFAULT 'taxable',
+        itc_eligible     BOOLEAN NOT NULL DEFAULT TRUE,
+        is_active        BOOLEAN NOT NULL DEFAULT TRUE
     )""")
+    c.execute("ALTER TABLE hsn_master ADD COLUMN IF NOT EXISTS unit VARCHAR(20) DEFAULT ''")
+    c.execute("ALTER TABLE hsn_master ADD COLUMN IF NOT EXISTS effective_date VARCHAR(10) DEFAULT ''")
+    c.execute("ALTER TABLE hsn_master ADD COLUMN IF NOT EXISTS is_service BOOLEAN NOT NULL DEFAULT FALSE")
+    c.execute("ALTER TABLE hsn_master ADD COLUMN IF NOT EXISTS reverse_charge BOOLEAN NOT NULL DEFAULT FALSE")
+    c.execute("ALTER TABLE hsn_master ADD COLUMN IF NOT EXISTS tax_status VARCHAR(20) NOT NULL DEFAULT 'taxable'")
+    c.execute("ALTER TABLE hsn_master ADD COLUMN IF NOT EXISTS itc_eligible BOOLEAN NOT NULL DEFAULT TRUE")
+    c.execute("ALTER TABLE hsn_master ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE")
 
 
 # ═══════════════════════════════ SHARED QUERY HELPERS ═════════════════════════
