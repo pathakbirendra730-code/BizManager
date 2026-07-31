@@ -536,6 +536,24 @@ def _init_sqlite(c):
     if "tax_status" not in existing_pi_cols2:
         c.execute("ALTER TABLE saas_purchase_items ADD COLUMN tax_status TEXT")
 
+    # ── Update_033: GST & HSN Perfection (Phase 2) ──────────────────────────────
+    # hsn_master.business_types is migrated together with hsn_master's other
+    # Update_032 columns, below (in the same loop, right after hsn_master's
+    # own CREATE TABLE — see that block's comment for why it can't live here).
+    #
+    # saas_businesses.hsn_business_types — this business's own selected
+    # type(s), used to pre-filter HSN search/autocomplete (with an
+    # explicit "Show All" override always available — see products.py's
+    # /api/hsn route). Deliberately a NEW, separate column from the
+    # existing `business_type` (retail/wholesale/service/manufacturing,
+    # used elsewhere for unrelated logic) rather than repurposing it —
+    # this is a different, HSN-specific classification (Grocery,
+    # Electronics, Medical Store, ...), and a business can select more
+    # than one.
+    existing_biz_cols = {row[1] for row in c.execute("PRAGMA table_info(saas_businesses)").fetchall()}
+    if "hsn_business_types" not in existing_biz_cols:
+        c.execute("ALTER TABLE saas_businesses ADD COLUMN hsn_business_types TEXT DEFAULT ''")
+
     # ── Update_030: Credit/Debit Notes & Returns ────────────────────────────────
     # returned_quantity tracks, per original invoice/purchase line, how much
     # of that line has already been returned via a credit/debit note so
@@ -705,6 +723,13 @@ def _init_sqlite(c):
         ("is_service", "INTEGER NOT NULL DEFAULT 0"), ("reverse_charge", "INTEGER NOT NULL DEFAULT 0"),
         ("tax_status", "TEXT NOT NULL DEFAULT 'taxable'"), ("itc_eligible", "INTEGER NOT NULL DEFAULT 1"),
         ("is_active", "INTEGER NOT NULL DEFAULT 1"),
+        # Update_033: business_types — see the business_types migration
+        # comment near saas_businesses.hsn_business_types below for the
+        # full rationale (kept in this same loop, rather than its own
+        # separate block, specifically so it can never again end up
+        # running before this CREATE TABLE — see CHANGELOG_Update_033.md
+        # §6 for the ordering bug this fixes).
+        ("business_types", "TEXT DEFAULT ''"),
     ]:
         if col not in existing_hsn_cols:
             c.execute(f"ALTER TABLE hsn_master ADD COLUMN {col} {defn}")
@@ -1033,6 +1058,14 @@ def _init_postgres(c):
     c.execute("ALTER TABLE saas_invoice_items ADD COLUMN IF NOT EXISTS tax_status VARCHAR(20)")
     c.execute("ALTER TABLE saas_purchase_items ADD COLUMN IF NOT EXISTS tax_status VARCHAR(20)")
 
+    # ── Update_033: GST & HSN Perfection (Phase 2) ──────────────────────────────
+    # hsn_master.business_types is migrated together with hsn_master's other
+    # Update_032 columns, below (right after its own CREATE TABLE).
+    # saas_businesses already exists by this point (created in
+    # models/saas_auth.py, which always runs first) — see the SQLite
+    # branch's comment for the full rationale.
+    c.execute("ALTER TABLE saas_businesses ADD COLUMN IF NOT EXISTS hsn_business_types TEXT DEFAULT ''")
+
     # ── Update_030: Credit/Debit Notes & Returns ────────────────────────────────
     # See the SQLite branch's comments for the full rationale on all of
     # the below — this is the Postgres equivalent, same shapes.
@@ -1167,6 +1200,11 @@ def _init_postgres(c):
     c.execute("ALTER TABLE hsn_master ADD COLUMN IF NOT EXISTS tax_status VARCHAR(20) NOT NULL DEFAULT 'taxable'")
     c.execute("ALTER TABLE hsn_master ADD COLUMN IF NOT EXISTS itc_eligible BOOLEAN NOT NULL DEFAULT TRUE")
     c.execute("ALTER TABLE hsn_master ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE")
+    # Update_033: business_types — folded into this same post-CREATE-TABLE
+    # migration block (not a separate earlier one) — see CHANGELOG_
+    # Update_033.md §6 for the table-doesn't-exist-yet ordering bug this
+    # avoids.
+    c.execute("ALTER TABLE hsn_master ADD COLUMN IF NOT EXISTS business_types TEXT DEFAULT ''")
 
 
 # ═══════════════════════════════ SHARED QUERY HELPERS ═════════════════════════

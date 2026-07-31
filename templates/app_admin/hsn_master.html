@@ -71,6 +71,16 @@
         <input type="checkbox" name="is_active" checked> Active
       </label>
     </div>
+    <div style="margin-bottom:14px;">
+      <label style="color:#9ca3af; font-size:12px; display:block; margin-bottom:6px;">Relevant Business Types (leave all unchecked = general-purpose, shown to everyone)</label>
+      <div style="display:flex; gap:10px 16px; flex-wrap:wrap;">
+        {% for slug, label in business_types %}
+        <label style="color:#d1d5db; font-size:12px; display:flex; align-items:center; gap:5px;">
+          <input type="checkbox" name="business_types" value="{{ slug }}"> {{ label }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
     <button type="submit" class="btn-admin" style="padding:9px 22px;">Add HSN/SAC</button>
   </form>
 </div>
@@ -140,7 +150,7 @@
                 <option value="non_gst" {% if c.tax_status=='non_gst' %}selected{% endif %}>Non-GST</option>
               </select>
             </div>
-            <div style="grid-column:span 4; display:flex; gap:20px; align-items:center;">
+            <div style="grid-column:span 4; display:flex; gap:20px; align-items:center; flex-wrap:wrap;">
               <label style="color:#d1d5db; font-size:12px; display:flex; align-items:center; gap:6px;">
                 <input type="checkbox" name="is_service" {% if c.is_service %}checked{% endif %}> Service (SAC)
               </label>
@@ -153,6 +163,19 @@
               <label style="color:#d1d5db; font-size:12px; display:flex; align-items:center; gap:6px;">
                 <input type="checkbox" name="is_active" {% if c.is_active %}checked{% endif %}> Active
               </label>
+            </div>
+            <div style="grid-column:span 4;">
+              <label style="color:#9ca3af; font-size:11px; display:block; margin-bottom:6px;">Relevant Business Types</label>
+              <div style="display:flex; gap:8px 14px; flex-wrap:wrap;">
+                {% set current_types = c.business_types.split(',') if c.business_types else [] %}
+                {% for slug, label in business_types %}
+                <label style="color:#d1d5db; font-size:11px; display:flex; align-items:center; gap:4px;">
+                  <input type="checkbox" name="business_types" value="{{ slug }}" {% if slug in current_types %}checked{% endif %}> {{ label }}
+                </label>
+                {% endfor %}
+              </div>
+            </div>
+            <div style="grid-column:span 4;">
               <button type="submit" class="btn-admin" style="padding:7px 18px;">Save</button>
             </div>
           </form>

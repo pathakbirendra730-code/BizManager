@@ -1435,6 +1435,7 @@ def business_settings():
 
     from utils.business_settings import all_business_settings_by_group
     from utils.document_numbering import financial_year_for_date
+    from utils.hsn_master import BUSINESS_TYPES, get_business_hsn_types
     settings_by_group = all_business_settings_by_group(biz_id)
     numbering_settings = settings_by_group.get("Document Numbering", [])
     tax_settings_list  = settings_by_group.get("Tax & Pricing", [])
@@ -1446,7 +1447,9 @@ def business_settings():
                            tax_settings_list=tax_settings_list,
                            is_owner=(role == "owner"),
                            current_fy=financial_year_for_date(today),
-                           current_month=today.strftime("%Y-%m"))
+                           current_month=today.strftime("%Y-%m"),
+                           hsn_business_types_options=BUSINESS_TYPES,
+                           selected_hsn_business_types=get_business_hsn_types(biz_id))
 
 
 # ═══════════════════ DOCUMENT NUMBERING (business-owner override) ════════════
@@ -1627,3 +1630,102 @@ def switch_business(biz_id):
     audit_log("business_switched", user_id=uid, business_id=biz_id)
     flash(f"Switched to {biz['name']}.", "success")
     return redirect(url_for("saas_dashboard.index"))
+
+
+# ═══════════════════════ HSN BUSINESS TYPES (Update_033) ══════════════════════
+
+@saas_auth_bp.route("/business-settings/hsn-types", methods=["POST"])
+@saas_business_required
+def update_hsn_business_types():
+    """Which Business Type(s) this business belongs to, for pre-filtering
+    HSN search/autocomplete (Products, Billing, Purchase entry) to the
+    relevant subset — a "Show All" override is always available at the
+    point of search itself (see products.py's /api/hsn route), so this
+    is a convenience default, never a hard restriction."""
+    role = session.get(SAAS_ROLE_KEY, "staff")
+    if role != "owner":
+        flash("Only the business owner can change this.", "danger")
+        return redirect(url_for("saas_auth.business_settings"))
+
+    if not validate_csrf(request.form.get("csrf_token")):
+        flash("Security error. Please try again.", "danger")
+        return redirect(url_for("saas_auth.business_settings"))
+
+    biz_id = session.get(SAAS_BIZ_KEY)
+    from utils.hsn_master import set_business_hsn_types
+    set_business_hsn_types(biz_id, request.form.getlist("hsn_business_types"))
+    audit_log("business_hsn_types_updated", business_id=biz_id,
+              detail=f"by_user={session.get('saas_user_id')}")
+    flash("Business type selection updated.", "success")
+    return redirect(url_for("saas_auth.business_settings"))
+
+
+# ═══════════════════════ DELETE BUSINESS (Update_033) ═════════════════════════
+# Owner only (App Admin has its own equivalent for any business — see
+# modules/app_admin/dashboard.py::delete_business()). Behind step-up PIN
+# re-authentication plus a typed "DELETE" confirmation, with the full
+# record-count preview shown first — see utils/business_deletion.py for
+# the deletion mechanics.
+
+@saas_auth_bp.route("/business-settings/delete")
+@saas_business_required
+def delete_business_confirm():
+    role = session.get(SAAS_ROLE_KEY, "staff")
+    if role != "owner":
+        flash("Only the business owner can delete this business.", "danger")
+        return redirect(url_for("saas_auth.business_settings"))
+
+    biz_id = session.get(SAAS_BIZ_KEY)
+    biz = saas_fetchone(f"SELECT * FROM saas_businesses WHERE id={P()}", (biz_id,))
+    from utils.business_deletion import get_business_summary
+    summary = get_business_summary(biz_id)
+    return render_template("saas_auth/delete_business.html", biz=biz, summary=summary)
+
+
+@saas_auth_bp.route("/business-settings/delete", methods=["POST"])
+@saas_business_required
+def delete_business_execute():
+    role = session.get(SAAS_ROLE_KEY, "staff")
+    if role != "owner":
+        flash("Only the business owner can delete this business.", "danger")
+        return redirect(url_for("saas_auth.business_settings"))
+
+    if not validate_csrf(request.form.get("csrf_token")):
+        flash("Security error. Please try again.", "danger")
+        return redirect(url_for("saas_auth.business_settings"))
+
+    user = get_current_saas_user()
+    biz_id = session.get(SAAS_BIZ_KEY)
+    biz = saas_fetchone(f"SELECT * FROM saas_businesses WHERE id={P()}", (biz_id,))
+    if not biz:
+        flash("Business not found.", "danger")
+        return redirect(url_for("saas_auth.select_business"))
+
+    # Step-up authentication — same pattern as change-email above.
+    current_pin = request.form.get("current_pin", "").strip()
+    if not current_pin or not user.get("pin_hash") or not check_password_hash(user["pin_hash"], current_pin):
+        audit_log("business_delete_pin_failed", user_id=user["id"], business_id=biz_id, status="failure")
+        flash("Incorrect PIN. Business was NOT deleted.", "danger")
+        return redirect(url_for("saas_auth.delete_business_confirm"))
+
+    confirm_text = request.form.get("confirm_text", "").strip()
+    if confirm_text != "DELETE":
+        flash("Please type DELETE (capital letters) to confirm. Business was NOT deleted.", "danger")
+        return redirect(url_for("saas_auth.delete_business_confirm"))
+
+    from utils.business_deletion import delete_business_completely
+    result = delete_business_completely(biz_id, deleted_by_user_id=user["id"])
+
+    # Logged at the platform level (business_id=None) — this record
+    # must survive the business it refers to; see
+    # utils/business_deletion.py's module docstring.
+    audit_log("business_deleted", user_id=user["id"], business_id=None,
+              detail=f"business_id={biz_id} name={result['business_name']} "
+                     f"total_records_deleted={sum(result['deleted_counts'].values())}")
+
+    if session.get(SAAS_BIZ_KEY) == biz_id:
+        session.pop(SAAS_BIZ_KEY, None)
+        session.pop(SAAS_ROLE_KEY, None)
+
+    flash(f"'{result['business_name']}' and all its records have been permanently deleted.", "success")
+    return redirect(url_for("saas_auth.select_business"))

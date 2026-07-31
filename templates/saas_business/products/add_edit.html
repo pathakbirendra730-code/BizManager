@@ -12,7 +12,7 @@
       <div class="form-row-2">
         <div class="form-group">
           <label>Product Name *</label>
-          <input type="text" name="name" class="form-control" value="{{ product.get('name','') }}" required autofocus>
+          <input type="text" id="nameInput" name="name" class="form-control" value="{{ product.get('name','') }}" required autofocus>
         </div>
         <div class="form-group">
           <label>SKU</label>
@@ -162,5 +162,25 @@ if (hsnVal) {
     if (d.description) document.getElementById("hsnDesc").textContent = d.description;
   });
 }
+
+// Update_033 — "Suggest HSN automatically from description": once the
+// person finishes typing a product name and HSN is still blank, offer
+// candidate codes in the same dropdown the manual search already uses.
+// Pure suggestion — never auto-fills, never blocks saving either way.
+const nameInput = document.getElementById("nameInput");
+nameInput.addEventListener("blur", async () => {
+  if (hsnInput.value.trim()) return;  // already has a code, don't override
+  const name = nameInput.value.trim();
+  if (name.length < 3) return;
+  const data = await fetch(`/biz/products/api/hsn/suggest?name=${encodeURIComponent(name)}`).then(r => r.json());
+  if (!data.length) return;
+  const box = document.getElementById("hsnResults");
+  box.innerHTML = `<div class="dd-item muted">Suggested for "${name}":</div>` + data.map(h => `
+    <div class="dd-item" onclick="selectHsn('${h.hsn_code}','${h.description.replace(/'/g,"\\'")}',${h.default_gst_rate})">
+      <strong>${h.hsn_code}</strong>
+      <span class="dd-meta">${h.description} · ${h.default_gst_rate}% GST · ${h.category||''}</span>
+    </div>`).join("");
+  box.classList.remove("hidden");
+});
 </script>
 {% endblock %}

@@ -158,11 +158,37 @@ def gstr1():
     )
     cdnr_total = round(sum(float(r["taxable_amount"]) for r in cdnr), 2)
 
+    # ── Update_033: Nil Rated / Exempt / Non-GST supplies ─────────────────────
+    # GSTR-1 Table 8 requires these reported separately from regular
+    # taxable B2B/B2C supplies. Classification comes from
+    # COALESCE(item's own tax_status override, its HSN's tax_status,
+    # 'taxable') — the item-level `tax_status` column (Update_032) lets
+    # a specific line override its HSN's default classification; when
+    # it's NULL (the common case), the line simply inherits whatever
+    # its HSN code is classified as in the National Master. A line with
+    # no HSN code at all, or an HSN not in the master, defaults to
+    # 'taxable' (matches its actual GST treatment on the invoice, which
+    # already charged GST on it) rather than being silently dropped.
+    nil_exempt_rows = saas_fetchall(
+        f"""SELECT COALESCE(ii.tax_status, hm.tax_status, 'taxable') as tax_status,
+                   SUM(ii.taxable_amount) as taxable_amount, COUNT(DISTINCT i.id) as doc_count
+            FROM saas_invoice_items ii
+            JOIN saas_invoices i ON i.id = ii.invoice_id
+            LEFT JOIN hsn_master hm ON hm.hsn_code = ii.hsn_code
+            WHERE ii.business_id={p} AND {_month_filter_clause('i.created_at')}={p}
+              AND i.status IN ('paid','partial')
+            GROUP BY COALESCE(ii.tax_status, hm.tax_status, 'taxable')
+            HAVING COALESCE(ii.tax_status, hm.tax_status, 'taxable') != 'taxable'""",
+        (biz_id, month)
+    )
+    nil_exempt_total = round(sum(float(r["taxable_amount"] or 0) for r in nil_exempt_rows), 2)
+
     biz = saas_fetchone(f"SELECT * FROM saas_businesses WHERE id={p}", (biz_id,))
 
     return render_template("saas_business/gst/gstr1.html",
                            biz=biz, month=month, b2b=b2b, b2c=b2c,
-                           cdnr=cdnr, cdnr_total=cdnr_total)
+                           cdnr=cdnr, cdnr_total=cdnr_total,
+                           nil_exempt_rows=nil_exempt_rows, nil_exempt_total=nil_exempt_total)
 
 
 @saas_gst_bp.route("/gstr3b")

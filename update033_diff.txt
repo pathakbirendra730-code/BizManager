@@ -1,0 +1,33 @@
+Only in /storage/emulated/0/BizManager/Current_Project/BizManager: .git
+Only in /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager: CHANGELOG_Update_033.md
+Only in /storage/emulated/0/BizManager/Current_Project/BizManager: __pycache__
+Only in /storage/emulated/0/BizManager/Current_Project/BizManager: database.db
+Only in /storage/emulated/0/BizManager/Current_Project/BizManager/models: __pycache__
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/models/saas_business_data.py and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/models/saas_business_data.py differ
+Only in /storage/emulated/0/BizManager/Current_Project/BizManager/modules: __pycache__
+Only in /storage/emulated/0/BizManager/Current_Project/BizManager/modules/app_admin: __pycache__
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/modules/app_admin/dashboard.py and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/modules/app_admin/dashboard.py differ
+Only in /storage/emulated/0/BizManager/Current_Project/BizManager/modules/saas_auth: __pycache__
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/modules/saas_auth/routes.py and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/modules/saas_auth/routes.py differ
+Only in /storage/emulated/0/BizManager/Current_Project/BizManager/modules/saas_business: __pycache__
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/modules/saas_business/gst.py and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/modules/saas_business/gst.py differ
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/modules/saas_business/products.py and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/modules/saas_business/products.py differ
+Only in /storage/emulated/0/BizManager/Current_Project/BizManager/notification: __pycache__
+Only in /storage/emulated/0/BizManager/Current_Project/BizManager/notification/providers: __pycache__
+Only in /storage/emulated/0/BizManager/Current_Project/BizManager/notification/providers/sms: __pycache__
+Only in /storage/emulated/0/BizManager/Current_Project/BizManager/scripts: __pycache__
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/templates/app_admin/all_businesses.html and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/templates/app_admin/all_businesses.html differ
+Only in /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/templates/app_admin: delete_business.html
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/templates/app_admin/hsn_master.html and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/templates/app_admin/hsn_master.html differ
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/templates/saas_auth/business_settings.html and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/templates/saas_auth/business_settings.html differ
+Only in /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/templates/saas_auth: delete_business.html
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/templates/saas_business/billing/pos.html and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/templates/saas_business/billing/pos.html differ
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/templates/saas_business/gst/gstr1.html and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/templates/saas_business/gst/gstr1.html differ
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/templates/saas_business/gst/health_check.html and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/templates/saas_business/gst/health_check.html differ
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/templates/saas_business/products/add_edit.html and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/templates/saas_business/products/add_edit.html differ
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/templates/saas_business/purchase/new.html and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/templates/saas_business/purchase/new.html differ
+Only in /storage/emulated/0/BizManager/Current_Project/BizManager: update033_diff.txt
+Only in /storage/emulated/0/BizManager/Current_Project/BizManager/utils: __pycache__
+Only in /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/utils: business_deletion.py
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/utils/gst_health.py and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/utils/gst_health.py differ
+Files /storage/emulated/0/BizManager/Current_Project/BizManager/utils/hsn_master.py and /storage/emulated/0/BizManager/Claude_Updates/Update_033/BizManager/utils/hsn_master.py differ

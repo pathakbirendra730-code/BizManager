@@ -25,12 +25,33 @@
   </div>
 </div>
 
+<div class="card">
+  <div class="card-header"><h3>Score Breakdown</h3></div>
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px">
+      {% for bucket, data in report.category_scores.items() %}
+      <div style="text-align:center;padding:12px;background:var(--surface2);border-radius:10px">
+        <div style="font-size:24px;font-weight:800;
+                    color:{{ '#16a34a' if data.score >= 90 else ('#d97706' if data.score >= 70 else '#dc2626') }}">
+          {{ data.score }}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">{{ bucket }}</div>
+        {% if data.issue_count %}<div style="font-size:10px;color:var(--text-muted)">{{ data.issue_count }} issue{{ 's' if data.issue_count != 1 }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
 {% if report.issues %}
 <div class="card">
   <div class="card-header"><h3>Issues Found</h3></div>
   <div class="card-body p-0">
     <table class="table table-hover">
-      <thead><tr><th>Severity</th><th>Category</th><th class="wrap">Issue</th><th class="wrap">Suggested Fix</th></tr></thead>
+      <thead><tr>
+        <th>Severity</th><th>Category</th><th>Document</th><th>Date</th><th>Party</th>
+        <th>Difference</th><th class="wrap">Issue</th><th class="wrap">Suggested Fix</th><th>Actions</th>
+      </tr></thead>
       <tbody>
         {% for issue in report.issues %}
         <tr class="{{ 'row-danger' if issue.severity == 'error' else 'row-warning' }}">
@@ -42,8 +63,26 @@
             {% endif %}
           </td>
           <td><strong>{{ issue.category }}</strong></td>
+          <td>{{ issue.doc_number or '—' }}</td>
+          <td class="text-muted small">{{ (issue.doc_date | dtfmt(10)) if issue.doc_date else '—' }}</td>
+          <td>{{ issue.party_name or '—' }}</td>
+          <td>{{ '₹%.2f'|format(issue.difference) if issue.difference is defined else '—' }}</td>
           <td class="wrap">{{ issue.message }}</td>
           <td class="wrap text-muted small">{{ issue.fix }}</td>
+          <td class="actions-col">
+            {% if issue.doc_type == 'invoice' and issue.doc_id %}
+            <a href="{{ url_for('saas_billing.view_invoice', inv_id=issue.doc_id) }}" class="btn btn-sm btn-secondary" target="_blank">View Document</a>
+            {% elif issue.doc_type == 'purchase' and issue.doc_id %}
+            <a href="{{ url_for('saas_purchase.view', pid=issue.doc_id) }}" class="btn btn-sm btn-secondary" target="_blank">View Document</a>
+            {% elif issue.doc_type == 'credit_note' and issue.doc_id %}
+            <a href="{{ url_for('saas_returns.view_credit_note', cn_id=issue.doc_id) }}" class="btn btn-sm btn-secondary" target="_blank">View Document</a>
+            {% elif issue.doc_type == 'debit_note' and issue.doc_id %}
+            <a href="{{ url_for('saas_returns.view_debit_note', dn_id=issue.doc_id) }}" class="btn btn-sm btn-secondary" target="_blank">View Document</a>
+            {% endif %}
+            {% if issue.category == 'Missing Ledger Posting' %}
+            <a href="{{ url_for('saas_accounts.ledger') }}" class="btn btn-sm btn-secondary" target="_blank">View Ledger</a>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -54,10 +93,16 @@
 
 <div class="card">
   <div class="card-body">
-    <p class="text-muted small" style="margin:0">
+    <p class="text-muted small" style="margin:0 0 8px">
       Checks run: Ledger (Trial Balance) · Inventory balance · HSN/SAC validity · GSTIN validity ·
-      Invoice/Purchase numbering continuity · Output GST reconciliation · Input GST (ITC) reconciliation ·
-      Credit/Debit Note return integrity.
+      Invoice/Purchase numbering continuity · Output GST reconciliation (with document-level drill-down) ·
+      Input GST (ITC) reconciliation (with document-level drill-down) · Credit/Debit Note return integrity.
+    </p>
+    <p class="text-muted small" style="margin:0">
+      Note: this page intentionally does not offer one-click "Repair Ledger Posting" or "Recalculate GST"
+      actions — automatically rewriting a posted ledger entry or a saved document's GST risks silently
+      corrupting a figure that's already been reported or filed. Issues that need this kind of correction
+      say so in their Suggested Fix and point to support instead.
     </p>
   </div>
 </div>

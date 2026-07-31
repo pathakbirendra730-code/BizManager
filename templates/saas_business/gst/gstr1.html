@@ -167,4 +167,38 @@
     </table>
   </div>
 </div>
+
+<!-- Update_033: Nil Rated / Exempt / Non-GST (GSTR-1 Table 8) -->
+<div class="card">
+  <div class="card-header">
+    <h3>🚫 Nil Rated / Exempt / Non-GST Supplies</h3>
+    <span class="badge badge-secondary">₹{{ "%.2f"|format(nil_exempt_total) }} total</span>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover">
+      <thead><tr><th>Classification</th><th>Documents</th><th>Taxable Value</th></tr></thead>
+      <tbody>
+        {% for row in nil_exempt_rows %}
+        <tr>
+          <td>
+            {% if row.tax_status == 'nil_rated' %}<span class="badge badge-secondary">Nil Rated</span>
+            {% elif row.tax_status == 'exempt' %}<span class="badge badge-secondary">Exempt</span>
+            {% else %}<span class="badge badge-secondary">Non-GST</span>{% endif %}
+          </td>
+          <td>{{ row.doc_count }}</td>
+          <td>₹{{ "%.2f"|format(row.taxable_amount or 0) }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="text-center text-muted py-3">No Nil Rated / Exempt / Non-GST supplies for {{ month }}.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-body" style="padding-top:0">
+    <p class="text-muted small" style="margin:0">
+      Classification is inherited from each line's HSN/SAC code (see App Admin → HSN/SAC Master); a
+      product's own HSN determines whether its sales count as Nil Rated, Exempt, or Non-GST here.
+    </p>
+  </div>
+</div>
 {% endblock %}

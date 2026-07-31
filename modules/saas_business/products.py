@@ -380,12 +380,36 @@ def api_search():
 @saas_products_bp.route("/api/hsn")
 @saas_business_required
 def api_hsn():
-    """HSN master is global reference data — same source as the GST
+    """
+    HSN master is global reference data — same source as the GST
     module, exposed here via a SaaS-session-aware route so the product
-    form's HSN autocomplete works for SaaS users."""
-    from utils.hsn_master import search_hsn
+    form's HSN autocomplete works for SaaS users.
+
+    Update_033: defaults to this business's own selected HSN business
+    type(s) (Business Settings → Business Type) when it has any set —
+    pass show_all=1 to bypass that and search the complete National
+    Master, always available as an explicit override.
+    """
+    from utils.hsn_master import search_hsn, get_business_hsn_types
     q = request.args.get("q", "").strip()
-    return jsonify(search_hsn(q, limit=15))
+    show_all = request.args.get("show_all") == "1"
+    business_types = None if show_all else get_business_hsn_types(get_tenant_id())
+    return jsonify(search_hsn(q, limit=15, business_types=business_types))
+
+
+@saas_products_bp.route("/api/hsn/suggest")
+@saas_business_required
+def api_hsn_suggest():
+    """Update_033 — "Suggest HSN automatically from description": called
+    with the product NAME typed so far (the closest thing to a
+    description at product-creation time); returns candidate HSN codes,
+    never auto-fills or blocks — see utils/hsn_master.py's
+    suggest_hsn_from_description()."""
+    from utils.hsn_master import suggest_hsn_from_description, get_business_hsn_types
+    name = request.args.get("name", "").strip()
+    show_all = request.args.get("show_all") == "1"
+    business_types = None if show_all else get_business_hsn_types(get_tenant_id())
+    return jsonify(suggest_hsn_from_description(name, business_types=business_types))
 
 
 @saas_products_bp.route("/api/hsn/<string:code>")

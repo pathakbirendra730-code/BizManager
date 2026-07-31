@@ -99,6 +99,23 @@
       </div>
       <div id="igstRow" class="summary-row text-info hidden"><span>IGST</span><span id="sIgst">₹0.00</span></div>
       <div class="summary-row"><span>Total Tax</span><span id="sTotalTax">₹0.00</span></div>
+
+      <div class="summary-row">
+        <span>Freight/Other (₹)</span>
+        <input type="number" id="freightAmount" class="form-control form-control-sm inline-input"
+               placeholder="0.00" min="0" step="0.01" value="0" style="width:80px" oninput="recalc()">
+      </div>
+      <div id="freightGstRow" class="summary-row hidden">
+        <span>Freight GST %</span>
+        <input type="number" id="freightGstRate" class="form-control form-control-sm inline-input"
+               min="0" max="28" step="0.01" value="18" style="width:70px" oninput="recalc()">%
+      </div>
+      <div class="summary-row">
+        <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+          <input type="checkbox" id="roundOffEnabled" onchange="recalc()"> Round off to nearest ₹
+        </label>
+        <span id="sRoundOff">₹0.00</span>
+      </div>
       <div class="summary-row total-row"><span>GRAND TOTAL</span><span id="sGrandTotal">₹0.00</span></div>
 
       <div class="form-group mt-2"><label>Payment</label>
@@ -286,6 +303,21 @@ function setGst(i, v)    { cart[i].gst_rate = Math.max(0, parseFloat(v)||0); ren
 function removeItem(i)   { cart.splice(i, 1); renderCart(); }
 function clearCart()     { cart = []; renderCart(); }
 
+// Freight is always treated as Tax Exclusive (entered amount is the
+// taxable freight value, GST added on top) regardless of the document's
+// own Tax Mode — matches utils.tax_helpers.apply_freight_and_roundoff()'s
+// backend behavior exactly (Update_032/033): a freight/shipping charge is
+// conventionally quoted as a flat exclusive amount with GST added, even
+// on an otherwise Tax Inclusive invoice.
+function calcFreightGst(amount, rate) {
+  if (supplyType === "inter") {
+    const igst = round2(amount * rate / 100);
+    return { taxable: amount, cgst: 0, sgst: 0, igst, tax: igst };
+  }
+  const half = round2(amount * rate / 200);
+  return { taxable: amount, cgst: half, sgst: half, igst: 0, tax: half * 2 };
+}
+
 // ── Totals recalc — mirrors utils/tax_helpers.py's scaled-sum pattern so
 // screen totals always match what billing.py::save_invoice() computes and
 // stores (Update_029 requirement: screen and PDF must always agree). ──────
@@ -295,13 +327,35 @@ function recalc() {
   const discAmt  = round2(grossSubtotal * discPct / 100);
   const scale    = grossSubtotal > 0 ? round2(grossSubtotal - discAmt) / grossSubtotal : 1;
 
-  let taxable = 0, cgst = 0, sgst = 0, igst = 0, totalTax = 0;
+  let taxable = 0, cgst = 0, sgst = 0, igst = 0;
   cart.forEach(item => {
     const g = calcItemGst(item.unit_price * item.quantity * scale, item.gst_rate);
-    taxable += g.taxable; cgst += g.cgst; sgst += g.sgst; igst += g.igst; totalTax += g.tax;
+    taxable += g.taxable; cgst += g.cgst; sgst += g.sgst; igst += g.igst;
   });
-  taxable = round2(taxable); cgst = round2(cgst); sgst = round2(sgst); igst = round2(igst); totalTax = round2(totalTax);
-  const grand = round2(taxable + totalTax);
+
+  // Freight/Other Charges (Update_033) — added once, via the same GST
+  // engine every line item uses, never calculated twice.
+  const freightAmount = Math.max(0, parseFloat(document.getElementById("freightAmount").value) || 0);
+  const freightGstRate = parseFloat(document.getElementById("freightGstRate").value) || 0;
+  document.getElementById("freightGstRow").classList.toggle("hidden", freightAmount <= 0);
+  if (freightAmount > 0) {
+    const fg = calcFreightGst(freightAmount, freightGstRate);
+    taxable += fg.taxable; cgst += fg.cgst; sgst += fg.sgst; igst += fg.igst;
+  }
+
+  taxable = round2(taxable); cgst = round2(cgst); sgst = round2(sgst); igst = round2(igst);
+  const totalTax = round2(cgst + sgst + igst);
+  const preRoundoff = round2(taxable + totalTax);
+
+  // Round-Off (Update_033) — a pure arithmetic nudge on the FINAL total
+  // only; never touches taxable value or any tax component, so it can
+  // never be mistaken for additional GST liability.
+  const roundOffEnabled = document.getElementById("roundOffEnabled").checked;
+  let grand = preRoundoff, roundOff = 0;
+  if (roundOffEnabled) {
+    grand = Math.round(preRoundoff);
+    roundOff = round2(grand - preRoundoff);
+  }
 
   const $ = id => document.getElementById(id);
   $("sSubtotal").textContent  = CURRENCY + grossSubtotal.toFixed(2);
@@ -311,6 +365,7 @@ function recalc() {
   $("sSgst").textContent      = CURRENCY + sgst.toFixed(2);
   $("sIgst").textContent      = CURRENCY + igst.toFixed(2);
   $("sTotalTax").textContent  = CURRENCY + totalTax.toFixed(2);
+  $("sRoundOff").textContent  = (roundOff >= 0 ? "+" : "") + CURRENCY + roundOff.toFixed(2);
   $("sGrandTotal").textContent= CURRENCY + grand.toFixed(2);
   updatePaidStatus();
 }
@@ -389,6 +444,9 @@ async function saveBill() {
     customer_gstin: document.getElementById("customerGstin").value,
     customer_state: document.getElementById("customerState").value,
     discount_pct:   parseFloat(document.getElementById("discPct").value) || 0,
+    freight_amount: parseFloat(document.getElementById("freightAmount").value) || 0,
+    freight_gst_rate: parseFloat(document.getElementById("freightGstRate").value) || 0,
+    round_off_enabled: document.getElementById("roundOffEnabled").checked,
     payment_method: document.querySelector("input[name=payment]:checked").value,
     paid_amount:    parseFloat(document.getElementById("paidAmountInput").value) || 0,
     notes:          document.getElementById("billNotes").value,

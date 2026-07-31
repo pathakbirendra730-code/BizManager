@@ -22,8 +22,61 @@ from models.saas_auth import saas_fetchone, saas_fetchall, _is_postgres
 P = lambda: "%s" if _is_postgres() else "?"
 
 
-def _issue(severity, category, message, fix):
-    return {"severity": severity, "category": category, "message": message, "fix": fix}
+def _issue(severity, category, message, fix, **actions):
+    """
+    Update_033: `actions` carries structured metadata the template can
+    turn into real links/buttons — e.g. doc_type="invoice", doc_id=42
+    lets the template render "View Document" / "View Ledger" links
+    without the template itself needing to know anything about GST
+    logic. Every existing call site (that doesn't pass any actions)
+    keeps working exactly as before — actions is empty by default, and
+    the template only renders a link when the corresponding key exists.
+    """
+    issue = {"severity": severity, "category": category, "message": message, "fix": fix}
+    issue.update(actions)
+    return issue
+
+
+def _find_documents_missing_ledger_posting(biz_id: int, table: str, id_col: str, number_col: str,
+                                           date_col: str, party_col: str, source_types: list,
+                                           gst_expr: str, doc_type: str) -> list:
+    """
+    Update_033 — the document-level drill-down: instead of only
+    reporting "Output GST doesn't match by ₹X", finds the SPECIFIC
+    document(s) whose GST amount has no corresponding journal entry
+    (matched by source_type + source_id, the same linkage
+    utils/ledger_transactions.py already writes on every posting) —
+    the single most common real cause of a reconciliation mismatch.
+    Only flags documents with a non-zero GST amount (a zero-GST
+    document, e.g. an entirely Nil Rated sale, legitimately has nothing
+    to post to Output/Input GST).
+    """
+    p = P()
+    placeholders = ",".join([p] * len(source_types))
+    rows = saas_fetchall(
+        f"""SELECT d.{id_col} as doc_id, d.{number_col} as doc_number, d.{date_col} as doc_date,
+                   d.{party_col} as party_name, ({gst_expr}) as gst_amt
+            FROM {table} d
+            WHERE d.business_id={p} AND ({gst_expr}) > 0.01
+              AND NOT EXISTS (
+                SELECT 1 FROM saas_journal_entries je
+                WHERE je.business_id = d.business_id AND je.source_id = d.{id_col}
+                  AND je.source_type IN ({placeholders}) AND je.status = 'posted'
+              )
+            ORDER BY d.{date_col} DESC""",
+        (biz_id, *source_types)
+    )
+    issues = []
+    for r in rows:
+        issues.append(_issue("error", "Missing Ledger Posting",
+            f"{doc_type} {r['doc_number']} (₹{float(r['gst_amt']):,.2f} GST) has no matching ledger entry.",
+            "This document's GST was never posted to the ledger — most likely a save that completed the "
+            "document but failed before or during its ledger posting. Contact support for a ledger repair "
+            "rather than re-saving the document (which would create a duplicate).",
+            doc_type=doc_type.lower().replace(" ", "_"), doc_id=r["doc_id"],
+            doc_number=r["doc_number"], doc_date=r["doc_date"], party_name=r["party_name"],
+            difference=float(r["gst_amt"])))
+    return issues
 
 
 def _check_trial_balance(biz_id: int) -> list:
@@ -157,15 +210,29 @@ def _check_invoice_numbering(biz_id: int) -> list:
 
 
 def _check_gst_reconciliation(biz_id: int) -> list:
-    """6+7. Input GST (ITC) / Output GST — cross-checks the GST stored
-    on Sales/Purchase documents (net of Credit/Debit Notes) against
-    what's actually posted to the Output GST / Input GST ledger
-    accounts. These are computed independently (documents vs. ledger
-    postings via utils/ledger_transactions.py) and should always agree
-    exactly — any drift means a document was saved without its matching
-    ledger entry, or vice versa."""
+    """
+    6+7. Input GST (ITC) / Output GST — Update_033: drills down to the
+    SPECIFIC invoice/purchase/credit-note/debit-note causing a mismatch
+    (via _find_documents_missing_ledger_posting(), matched by the same
+    source_type+source_id linkage utils/ledger_transactions.py already
+    writes) rather than only reporting an aggregate difference. After
+    listing every specific offender, a final aggregate check still runs
+    as a safety net — if a residual mismatch remains even after
+    accounting for every individually-flagged document, something
+    other than "a whole document's posting is missing" is wrong (e.g. a
+    partial/corrupted posting), which the per-document check alone
+    can't detect but is still worth surfacing.
+    """
     issues = []
     p = P()
+
+    # ── Output GST: Invoices + Credit Notes ──
+    issues += _find_documents_missing_ledger_posting(
+        biz_id, "saas_invoices", "id", "invoice_number", "created_at", "customer_name",
+        ["cash_sale", "credit_sale"], "cgst_amount+sgst_amount+igst_amount", "Invoice")
+    issues += _find_documents_missing_ledger_posting(
+        biz_id, "saas_credit_notes", "id", "credit_note_number", "created_at", "customer_name",
+        ["sales_return"], "cgst_amount+sgst_amount+igst_amount", "Credit Note")
 
     output_gst_docs = saas_fetchone(
         f"SELECT COALESCE(SUM(cgst_amount+sgst_amount+igst_amount),0) as t FROM saas_invoices WHERE business_id={p}",
@@ -183,11 +250,25 @@ def _check_gst_reconciliation(biz_id: int) -> list:
         (biz_id,)
     )
     net_output_actual = round(float(output_gst_ledger["t"]), 2)
-    if abs(net_output_expected - net_output_actual) > 0.02:
+    output_gst_issue_count_so_far = sum(1 for i in issues if i["category"] == "Missing Ledger Posting"
+                                        and i.get("doc_type") in ("invoice", "credit_note"))
+    if abs(net_output_expected - net_output_actual) > 0.02 and output_gst_issue_count_so_far == 0:
+        # Only surfaced when NO specific document was already flagged
+        # above — otherwise this would just be restating the same
+        # problem in a less actionable way.
         issues.append(_issue("error", "Output GST",
             f"Output GST per documents (₹{net_output_expected:,.2f}, net of Credit Notes) doesn't match "
-            f"the Output GST ledger balance (₹{net_output_actual:,.2f}).",
-            "Check for an invoice or credit note saved without its matching ledger posting."))
+            f"the Output GST ledger balance (₹{net_output_actual:,.2f}), but no single missing document "
+            f"was found — the mismatch may be a partial/corrupted posting rather than a whole missing one.",
+            "Contact support for a manual ledger reconciliation."))
+
+    # ── Input GST (ITC): Purchases + Debit Notes ──
+    issues += _find_documents_missing_ledger_posting(
+        biz_id, "saas_purchases", "id", "purchase_number", "created_at", "supplier_name",
+        ["cash_purchase", "credit_purchase"], "cgst_amount+sgst_amount+igst_amount", "Purchase")
+    issues += _find_documents_missing_ledger_posting(
+        biz_id, "saas_debit_notes", "id", "debit_note_number", "created_at", "supplier_name",
+        ["purchase_return"], "cgst_amount+sgst_amount+igst_amount", "Debit Note")
 
     itc_docs = saas_fetchone(
         f"SELECT COALESCE(SUM(cgst_amount+sgst_amount+igst_amount),0) as t FROM saas_purchases WHERE business_id={p} AND status != 'cancelled'",
@@ -205,11 +286,14 @@ def _check_gst_reconciliation(biz_id: int) -> list:
         (biz_id,)
     )
     net_itc_actual = round(float(itc_ledger["t"]), 2)
-    if abs(net_itc_expected - net_itc_actual) > 0.02:
+    itc_issue_count_so_far = sum(1 for i in issues if i["category"] == "Missing Ledger Posting"
+                                 and i.get("doc_type") in ("purchase", "debit_note"))
+    if abs(net_itc_expected - net_itc_actual) > 0.02 and itc_issue_count_so_far == 0:
         issues.append(_issue("error", "Input GST (ITC)",
             f"Input GST/ITC per documents (₹{net_itc_expected:,.2f}, net of Debit Notes) doesn't match "
-            f"the ITC ledger balance (₹{net_itc_actual:,.2f}).",
-            "Check for a purchase or debit note saved without its matching ledger posting."))
+            f"the ITC ledger balance (₹{net_itc_actual:,.2f}), but no single missing document was found — "
+            f"the mismatch may be a partial/corrupted posting rather than a whole missing one.",
+            "Contact support for a manual ledger reconciliation."))
 
     return issues
 
@@ -259,12 +343,39 @@ CHECKS = [
     _check_returns_integrity,
 ]
 
+# Update_033: maps each issue's `category` (set by the check that raised
+# it) to one of the six named sub-scores the spec calls out. Several
+# issue categories can feed the same bucket — e.g. a missing ledger
+# posting and an Output GST mismatch are both fundamentally "GST
+# Compliance" problems, even though they're reported with different
+# `category` labels for readability in the issue list itself.
+SCORE_BUCKETS = {
+    "GST Compliance":     ["Missing Ledger Posting", "Output GST", "Input GST (ITC)", "Inventory"],
+    "Ledger Integrity":   ["Ledger"],
+    "HSN Coverage":       ["HSN"],
+    "GSTIN Validation":   ["GSTIN"],
+    "Document Numbering": ["Numbering"],
+    "Return Integrity":   ["Returns"],
+}
+
+
+def _score_for(issues: list) -> int:
+    errors = sum(1 for i in issues if i["severity"] == "error")
+    warnings = sum(1 for i in issues if i["severity"] == "warning")
+    return max(0, 100 - errors * 10 - warnings * 3)
+
 
 def run_health_check(biz_id: int) -> dict:
     """
     Runs every check and returns:
-        {"score": int, "issues": [...], "error_count": int, "warning_count": int}
+        {"score": int, "issues": [...], "error_count": int, "warning_count": int,
+         "category_scores": {bucket_name: {"score": int, "issue_count": int}}}
     `issues` is sorted errors-first (most actionable/severe first).
+    `category_scores` gives the six named sub-scores from the spec —
+    each computed with the exact same formula as the overall score,
+    scoped to just that bucket's own issues, so an admin can see at a
+    glance which area needs attention rather than only an opaque
+    overall number.
     """
     issues = []
     for check in CHECKS:
@@ -272,9 +383,14 @@ def run_health_check(biz_id: int) -> dict:
 
     error_count = sum(1 for i in issues if i["severity"] == "error")
     warning_count = sum(1 for i in issues if i["severity"] == "warning")
-    score = max(0, 100 - error_count * 10 - warning_count * 3)
+    score = _score_for(issues)
 
     issues.sort(key=lambda i: 0 if i["severity"] == "error" else 1)
+
+    category_scores = {}
+    for bucket, categories in SCORE_BUCKETS.items():
+        bucket_issues = [i for i in issues if i["category"] in categories]
+        category_scores[bucket] = {"score": _score_for(bucket_issues), "issue_count": len(bucket_issues)}
 
     return {
         "score": score,
@@ -282,4 +398,5 @@ def run_health_check(biz_id: int) -> dict:
         "error_count": error_count,
         "warning_count": warning_count,
         "is_clean": not issues,
+        "category_scores": category_scores,
     }

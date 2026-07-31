@@ -490,6 +490,61 @@ def toggle_business(biz_id):
     return redirect(url_for("app_admin.all_businesses"))
 
 
+@app_admin_bp.route("/businesses/<int:biz_id>/delete")
+@super_admin_required
+def delete_business_confirm(biz_id):
+    """Update_033: Demo Business Management — record-count preview
+    before an app-admin-initiated deletion. See
+    utils/business_deletion.py for the deletion mechanics; this is the
+    App Admin equivalent of saas_auth's owner-initiated flow (same
+    module, different entry point, since an admin doesn't have the
+    business owner's PIN to step-up-authenticate with)."""
+    p = P()
+    biz = saas_fetchone(f"SELECT * FROM saas_businesses WHERE id={p}", (biz_id,))
+    if not biz:
+        flash("Business not found.", "danger")
+        return redirect(url_for("app_admin.all_businesses"))
+    from utils.business_deletion import get_business_summary
+    summary = get_business_summary(biz_id)
+    return render_template("app_admin/delete_business.html", biz=biz, summary=summary)
+
+
+@app_admin_bp.route("/businesses/<int:biz_id>/delete", methods=["POST"])
+@super_admin_required
+def delete_business_execute(biz_id):
+    if not validate_csrf(request.form.get("csrf_token")):
+        flash("Security error.", "danger")
+        return redirect(url_for("app_admin.all_businesses"))
+
+    p = P()
+    biz = saas_fetchone(f"SELECT * FROM saas_businesses WHERE id={p}", (biz_id,))
+    if not biz:
+        flash("Business not found.", "danger")
+        return redirect(url_for("app_admin.all_businesses"))
+
+    # No PIN available in the admin context — the typed exact business
+    # name plus typed DELETE together are the confirmation gate here.
+    typed_name = request.form.get("business_name", "").strip()
+    if typed_name != biz["name"]:
+        flash("Business name didn't match exactly. Business was NOT deleted.", "danger")
+        return redirect(url_for("app_admin.delete_business_confirm", biz_id=biz_id))
+
+    confirm_text = request.form.get("confirm_text", "").strip()
+    if confirm_text != "DELETE":
+        flash("Please type DELETE (capital letters) to confirm. Business was NOT deleted.", "danger")
+        return redirect(url_for("app_admin.delete_business_confirm", biz_id=biz_id))
+
+    from utils.business_deletion import delete_business_completely
+    result = delete_business_completely(biz_id)
+
+    audit_log("app_admin_business_deleted", business_id=None,
+              entity_type="business", entity_id=str(biz_id),
+              detail=f"name={result['business_name']} by_admin={session.get('admin_userid')} "
+                     f"total_records_deleted={sum(result['deleted_counts'].values())}")
+    flash(f"'{result['business_name']}' and all its records have been permanently deleted.", "success")
+    return redirect(url_for("app_admin.all_businesses"))
+
+
 # ════════════════════════════ PENDING INVITES (PLATFORM VIEW) ════════════════
 
 @app_admin_bp.route("/invites")
@@ -570,10 +625,10 @@ def platform_settings():
 @app_admin_bp.route("/hsn-master")
 @super_admin_required
 def hsn_master():
-    from utils.hsn_master import list_all_hsn
+    from utils.hsn_master import list_all_hsn, BUSINESS_TYPES
     search = request.args.get("q", "").strip()
     codes = list_all_hsn(search)
-    return render_template("app_admin/hsn_master.html", codes=codes, search=search)
+    return render_template("app_admin/hsn_master.html", codes=codes, search=search, business_types=BUSINESS_TYPES)
 
 
 @app_admin_bp.route("/hsn-master/add", methods=["POST"])
@@ -596,6 +651,7 @@ def hsn_master_add():
         "tax_status": request.form.get("tax_status", "taxable"),
         "itc_eligible": request.form.get("itc_eligible") == "on",
         "is_active": request.form.get("is_active", "on") == "on",
+        "business_types": request.form.getlist("business_types"),
     }
     try:
         hsn_id = create_hsn(data)
@@ -626,6 +682,7 @@ def hsn_master_edit(hsn_id):
         "tax_status": request.form.get("tax_status", "taxable"),
         "itc_eligible": request.form.get("itc_eligible") == "on",
         "is_active": request.form.get("is_active") == "on",
+        "business_types": request.form.getlist("business_types"),
     }
     try:
         update_hsn(hsn_id, data)

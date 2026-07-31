@@ -109,6 +109,23 @@
       </div>
       <div id="igstRow" class="summary-row text-info hidden"><span>IGST (Input)</span><span id="sIgst">₹0.00</span></div>
       <div class="summary-row"><span>Total Input Tax</span><span id="sTotalTax">₹0.00</span></div>
+
+      <div class="summary-row">
+        <span>Freight/Other (₹)</span>
+        <input type="number" id="freightAmount" class="form-control form-control-sm inline-input"
+               placeholder="0.00" min="0" step="0.01" value="0" style="width:80px" oninput="recalc()">
+      </div>
+      <div id="freightGstRow" class="summary-row hidden">
+        <span>Freight GST %</span>
+        <input type="number" id="freightGstRate" class="form-control form-control-sm inline-input"
+               min="0" max="28" step="0.01" value="18" style="width:70px" oninput="recalc()">%
+      </div>
+      <div class="summary-row">
+        <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+          <input type="checkbox" id="roundOffEnabled" onchange="recalc()"> Round off to nearest ₹
+        </label>
+        <span id="sRoundOff">₹0.00</span>
+      </div>
       <div class="summary-row total-row"><span>GRAND TOTAL</span><span id="sGrandTotal">₹0.00</span></div>
 
       <div class="form-group mt-2">
@@ -261,6 +278,18 @@ function setGst(i,v)   { items[i].gst_rate=Math.max(0,parseFloat(v)||0); renderI
 function removeItem(i) { items.splice(i,1); renderItems(); }
 function clearItems()  { items=[]; renderItems(); }
 
+// Freight is always treated as Tax Exclusive — see pos.html's
+// calcFreightGst() for the full rationale (matches
+// utils.tax_helpers.apply_freight_and_roundoff()'s backend behavior).
+function calcFreightGst(amount, rate) {
+  if (supplyType === "inter") {
+    const igst = r2(amount * rate / 100);
+    return { taxable: amount, cgst: 0, sgst: 0, igst, tax: igst };
+  }
+  const half = r2(amount * rate / 200);
+  return { taxable: amount, cgst: half, sgst: half, igst: 0, tax: half * 2 };
+}
+
 function recalc() {
   const grossSubtotal = items.reduce((s,i)=>s+i.unit_price*i.quantity,0);
   const discPct  = parseFloat(document.getElementById("discPct").value)||0;
@@ -273,7 +302,6 @@ function recalc() {
     const g = calcGst(amt, item.gst_rate);
     taxableSum += g.taxable; cgst += g.cgst; sgst += g.sgst; igst += g.igst;
   });
-  cgst=r2(cgst); sgst=r2(sgst); igst=r2(igst);
 
   // Tax Exclusive: taxable computed via the ORIGINAL direct formula
   // (unchanged — not a sum of per-item values), so exclusive-mode
@@ -281,10 +309,31 @@ function recalc() {
   // Tax Inclusive: there IS no simple direct formula (taxable is
   // derived per-item via division), so it's the sum of per-item
   // derived values instead — the only mode where this differs.
-  const taxable = TAX_MODE === "inclusive" ? r2(taxableSum) : r2(grossSubtotal - discAmt);
+  let taxable = TAX_MODE === "inclusive" ? r2(taxableSum) : r2(grossSubtotal - discAmt);
+
+  // Freight/Other Charges (Update_033) — added once, after the item
+  // totals, via the same GST engine every line item uses.
+  const freightAmount = Math.max(0, parseFloat(document.getElementById("freightAmount").value) || 0);
+  const freightGstRate = parseFloat(document.getElementById("freightGstRate").value) || 0;
+  document.getElementById("freightGstRow").classList.toggle("hidden", freightAmount <= 0);
+  if (freightAmount > 0) {
+    const fg = calcFreightGst(freightAmount, freightGstRate);
+    taxable = r2(taxable + fg.taxable); cgst = r2(cgst + fg.cgst);
+    sgst = r2(sgst + fg.sgst); igst = r2(igst + fg.igst);
+  } else {
+    cgst=r2(cgst); sgst=r2(sgst); igst=r2(igst);
+  }
 
   const totalTax=r2(cgst+sgst+igst);
-  const grand=r2(taxable+totalTax);
+  const preRoundoff = r2(taxable+totalTax);
+
+  // Round-Off (Update_033) — pure arithmetic on the FINAL total only.
+  const roundOffEnabled = document.getElementById("roundOffEnabled").checked;
+  let grand = preRoundoff, roundOff = 0;
+  if (roundOffEnabled) {
+    grand = Math.round(preRoundoff);
+    roundOff = r2(grand - preRoundoff);
+  }
   const paid=parseFloat(document.getElementById("paidAmount").value)||0;
 
   const $=id=>document.getElementById(id);
@@ -293,6 +342,7 @@ function recalc() {
   $("sTaxable").textContent=CURRENCY+taxable.toFixed(2);
   $("sCgst").textContent=CURRENCY+cgst.toFixed(2);
   $("sSgst").textContent=CURRENCY+sgst.toFixed(2);
+  $("sRoundOff").textContent=(roundOff>=0?"+":"")+CURRENCY+roundOff.toFixed(2);
   $("sIgst").textContent=CURRENCY+igst.toFixed(2);
   $("sTotalTax").textContent=CURRENCY+totalTax.toFixed(2);
   $("sGrandTotal").textContent=CURRENCY+grand.toFixed(2);
@@ -359,6 +409,9 @@ async function savePurchase() {
     bill_number:    document.getElementById("billNumber").value,
     bill_date:      document.getElementById("billDate").value,
     discount_pct:   parseFloat(document.getElementById("discPct").value)||0,
+    freight_amount: parseFloat(document.getElementById("freightAmount").value) || 0,
+    freight_gst_rate: parseFloat(document.getElementById("freightGstRate").value) || 0,
+    round_off_enabled: document.getElementById("roundOffEnabled").checked,
     payment_method: document.getElementById("paymentMethod").value,
     paid_amount:    parseFloat(document.getElementById("paidAmount").value)||0,
     notes:          document.getElementById("purNotes").value,

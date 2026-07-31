@@ -31,12 +31,14 @@
         <td style="color:#9ca3af; font-size:12px;">{{ (b.created_at | dtfmt(10)) if b.created_at else '—' }}</td>
         <td>
           <form method="POST" action="{{ url_for('app_admin.toggle_business', biz_id=b.id) }}"
-                onsubmit="return confirm('{{ 'Deactivate' if b.is_active else 'Activate' }} {{ b.name }}?')">
+                onsubmit="return confirm('{{ 'Deactivate' if b.is_active else 'Activate' }} {{ b.name }}?')" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="btn-sm {{ 'btn-sm-danger' if b.is_active else 'btn-sm-primary' }}">
               {{ 'Deactivate' if b.is_active else 'Activate' }}
             </button>
           </form>
+          <a href="{{ url_for('app_admin.delete_business_confirm', biz_id=b.id) }}"
+             class="btn-sm" style="background:#3b1212; color:#f87171;">Delete…</a>
         </td>
       </tr>
       {% else %}

@@ -309,6 +309,40 @@
       </button>
     </form>
   </div>
+
+  <div class="profile-card">
+    <h3 style="margin:0 0 8px; font-size:16px; font-weight:700; color:#111827;">🏷️ Business Type (HSN Filtering)</h3>
+    <p style="margin:0 0 16px; font-size:13px; color:#6b7280;">
+      Select the type(s) that best describe this business — Sales/Purchase entry and Product HSN search will
+      default to showing only the relevant subset of the National HSN/SAC Master. "Show All" is always
+      available at the point of search, so this never blocks you from using any code.
+    </p>
+    <form method="POST" action="{{ url_for('saas_auth.update_hsn_business_types') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div style="display:flex; gap:10px 18px; flex-wrap:wrap; margin-bottom:16px;">
+        {% for slug, label in hsn_business_types_options %}
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:#374151;">
+          <input type="checkbox" name="hsn_business_types" value="{{ slug }}"
+                 {% if slug in selected_hsn_business_types %}checked{% endif %}>
+          {{ label }}
+        </label>
+        {% endfor %}
+      </div>
+      <button type="submit" class="btn btn-primary" style="padding:9px 22px;">Save Business Type</button>
+    </form>
+  </div>
+
+  <div class="profile-card" style="border-color:#fecaca; background:#fef2f2;">
+    <h3 style="margin:0 0 8px; font-size:16px; font-weight:700; color:#991b1b;">⚠️ Danger Zone</h3>
+    <p style="margin:0 0 16px; font-size:13px; color:#7f1d1d;">
+      Permanently delete this business and every record scoped to it — products, customers, suppliers,
+      invoices, purchases, returns, ledger, GST data, and settings. This cannot be undone.
+    </p>
+    <a href="{{ url_for('saas_auth.delete_business_confirm') }}"
+       style="display:inline-block; background:#dc2626; color:#fff; padding:9px 20px; border-radius:8px; text-decoration:none; font-weight:600; font-size:13px;">
+      Delete This Business…
+    </a>
+  </div>
   {% endif %}
 
 </div>
