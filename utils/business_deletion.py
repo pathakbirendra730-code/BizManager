@@ -136,8 +136,20 @@ def delete_business_completely(business_id: int, deleted_by_user_id=None) -> dic
     try:
         deleted_counts = {}
         for table in TABLES:
-            c.execute(f"SELECT COUNT(*) FROM {table} WHERE business_id={p}", (business_id,))
-            deleted_counts[table] = c.fetchone()[0]
+            # NOTE: this connection's cursor returns dict-like rows on
+            # Postgres (RealDictCursor — configured once at the
+            # connection level in models/saas_auth.py::get_saas_db()),
+            # not tuples. An explicit column alias + key-based access
+            # (row["cnt"]) is what makes this work correctly on BOTH
+            # backends — plain positional indexing (row[0]) crashes with
+            # a KeyError on Postgres specifically, since RealDictRow has
+            # no integer keys. This was caught in production (Internal
+            # Server Error on Delete Business) because local testing
+            # only exercised the SQLite path, where tuple-style
+            # indexing happens to still work — see
+            # CHANGELOG_Update_033_1.md for the full writeup.
+            c.execute(f"SELECT COUNT(*) as cnt FROM {table} WHERE business_id={p}", (business_id,))
+            deleted_counts[table] = c.fetchone()["cnt"]
             c.execute(f"DELETE FROM {table} WHERE business_id={p}", (business_id,))
 
         for table in NULLABLE_REFERENCE_TABLES:
