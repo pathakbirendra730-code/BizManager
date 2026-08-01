@@ -26,4 +26,5 @@ dist/
 
 .DS_Store
 .idea/
-.vscode/
+.vscode/database.db-shm
+database.db-wal
