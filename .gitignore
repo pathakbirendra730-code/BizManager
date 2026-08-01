@@ -28,3 +28,5 @@ dist/
 .idea/
 .vscode/database.db-shm
 database.db-wal
+database.db-shm
+database.db-wal
