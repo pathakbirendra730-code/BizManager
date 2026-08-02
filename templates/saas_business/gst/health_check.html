@@ -78,6 +78,14 @@
             <a href="{{ url_for('saas_returns.view_credit_note', cn_id=issue.doc_id) }}" class="btn btn-sm btn-secondary" target="_blank">View Document</a>
             {% elif issue.doc_type == 'debit_note' and issue.doc_id %}
             <a href="{{ url_for('saas_returns.view_debit_note', dn_id=issue.doc_id) }}" class="btn btn-sm btn-secondary" target="_blank">View Document</a>
+            {% elif issue.doc_type == 'customer' and issue.doc_id %}
+            <a href="{{ url_for('saas_customers.edit', cid=issue.doc_id) }}" class="btn btn-sm btn-primary">Fix Customer</a>
+            {% elif issue.doc_type == 'supplier' and issue.doc_id %}
+            <a href="{{ url_for('saas_suppliers.edit', sid=issue.doc_id) }}" class="btn btn-sm btn-primary">Fix Supplier</a>
+            {% elif issue.doc_type == 'product' and issue.doc_id %}
+            <a href="{{ url_for('saas_products.edit', pid=issue.doc_id) }}" class="btn btn-sm btn-primary">Fix Product</a>
+            {% elif issue.doc_type == 'hsn_search' and issue.hsn_code %}
+            <a href="{{ url_for('saas_products.index', q=issue.hsn_code) }}" class="btn btn-sm btn-secondary">View Products</a>
             {% endif %}
             {% if issue.category == 'Missing Ledger Posting' %}
             <a href="{{ url_for('saas_accounts.ledger') }}" class="btn btn-sm btn-secondary" target="_blank">View Ledger</a>

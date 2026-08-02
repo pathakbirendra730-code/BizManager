@@ -105,12 +105,13 @@ def _check_inventory_balance(biz_id: int) -> list:
     purchased/returned-in, which usually points to a data entry
     problem (e.g. selling before recording the purchase)."""
     rows = saas_fetchall(
-        f"SELECT name, sku, stock_quantity FROM saas_products WHERE business_id={P()} AND stock_quantity < 0",
+        f"SELECT id, name, sku, stock_quantity FROM saas_products WHERE business_id={P()} AND stock_quantity < 0",
         (biz_id,)
     )
     return [_issue("warning", "Inventory",
         f"'{r['name']}' ({r['sku'] or 'no SKU'}) has negative stock: {r['stock_quantity']:g}.",
-        "Record any missing purchase entries for this product, or adjust stock via Products → Edit."
+        "Record any missing purchase entries for this product, or adjust stock via Products → Edit.",
+        doc_type="product", doc_id=r["id"], party_name=r["name"]
     ) for r in rows]
 
 
@@ -143,11 +144,13 @@ def _check_hsn_validity(biz_id: int) -> list:
                 issues.append(_issue("warning", "HSN",
                     f"{label} documents use HSN/SAC '{code}', which isn't in the HSN master.",
                     f"Add '{code}' to the HSN Master (App Admin → HSN/SAC Master) so future GSTR-1/HSN "
-                    f"Summary reports can classify it correctly."))
+                    f"Summary reports can classify it correctly.",
+                    doc_type="hsn_search", hsn_code=code))
             elif not known_map[code]:
                 issues.append(_issue("warning", "HSN",
                     f"{label} documents use HSN/SAC '{code}', which is marked inactive in the HSN master.",
-                    f"Reactivate '{code}' if it's still valid, or update the affected line items to a current code."))
+                    f"Reactivate '{code}' if it's still valid, or update the affected line items to a current code.",
+                    doc_type="hsn_search", hsn_code=code))
     return issues
 
 
@@ -159,7 +162,7 @@ def _check_gstin_validity(biz_id: int) -> list:
     issues = []
     p = P()
     customers = saas_fetchall(
-        f"SELECT name, gstin FROM saas_customers WHERE business_id={p} AND gstin IS NOT NULL AND gstin != ''",
+        f"SELECT id, name, gstin FROM saas_customers WHERE business_id={p} AND gstin IS NOT NULL AND gstin != ''",
         (biz_id,)
     )
     for c in customers:
@@ -167,9 +170,10 @@ def _check_gstin_validity(biz_id: int) -> list:
         if err:
             issues.append(_issue("warning", "GSTIN",
                 f"Customer '{c['name']}': {err}",
-                "Correct the GSTIN on the customer's profile."))
+                "Correct the GSTIN on the customer's profile.",
+                doc_type="customer", doc_id=c["id"], party_name=c["name"]))
     suppliers = saas_fetchall(
-        f"SELECT name, gstin FROM saas_suppliers WHERE business_id={p} AND gstin IS NOT NULL AND gstin != ''",
+        f"SELECT id, name, gstin FROM saas_suppliers WHERE business_id={p} AND gstin IS NOT NULL AND gstin != ''",
         (biz_id,)
     )
     for s in suppliers:
@@ -177,7 +181,8 @@ def _check_gstin_validity(biz_id: int) -> list:
         if err:
             issues.append(_issue("warning", "GSTIN",
                 f"Supplier '{s['name']}': {err}",
-                "Correct the GSTIN on the supplier's profile."))
+                "Correct the GSTIN on the supplier's profile.",
+                doc_type="supplier", doc_id=s["id"], party_name=s["name"]))
     return issues
 
 
